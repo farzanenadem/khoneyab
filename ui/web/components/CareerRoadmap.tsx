@@ -23,8 +23,19 @@ const EMPTY_PROFILE: CareerProfile = {
   hoursPerWeek: 5,
 };
 
-type SavedState = { roadmap: SavedRoadmap; inProgressIds: string[] };
+const TARGET_EXAMPLES = ["تحلیلگر داده", "برنامه‌نویس فرانت‌اند", "مهندس هوش مصنوعی", "حسابدار", "دیجیتال مارکتینگ"];
+
+type SavedState ={ roadmap: SavedRoadmap; inProgressIds: string[] };
 type StatusFilter = "all" | "remaining" | "in-progress" | "completed";
+
+const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: "all", label: "همه" },
+  { id: "remaining", label: "باقی‌مانده" },
+  { id: "in-progress", label: "در حال یادگیری" },
+  { id: "completed", label: "تکمیل‌شده" },
+];
+
+const fa = (n: number) => n.toLocaleString("fa-IR");
 
 function displayStatus(node: RoadmapNode, nodes: RoadmapNode[]) {
   if (isBlocked(node, nodes)) return "blocked";
@@ -37,7 +48,6 @@ export default function CareerRoadmap() {
   const [inProgressIds, setInProgressIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<RoadmapNode | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [phaseFilter, setPhaseFilter] = useState("all");
   const [stage, setStage] = useState<"idle" | "searching">("idle");
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -90,7 +100,7 @@ export default function CareerRoadmap() {
         .join(" ");
       const response = await searchJobs(query, EMPTY_FILTERS, 50, "hybrid", "relevance");
       if (!response.results?.length) {
-        setError("برای این عنوان آگهی مرتبطی در نتایج جستجو پیدا نشد. عنوان یا موقعیت را تغییر دهید و دوباره تلاش کنید.");
+        setError("برای این شغل آگهی پیدا نشد. عنوان ساده‌تری امتحان کنید؛ مثلاً «برنامه‌نویس» به‌جای «برنامه‌نویس ارشد بک‌اند».");
         return;
       }
       const completed = roadmap?.nodes.filter((node) => node.status === "completed").map((node) => node.id) ?? [];
@@ -100,7 +110,8 @@ export default function CareerRoadmap() {
       setInProgressIds(nextInProgress);
       setSelected(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      console.error(reason);
+      setError("ارتباط با سرور برقرار نشد. چند لحظه بعد دوباره تلاش کنید.");
     } finally {
       setStage("idle");
     }
@@ -117,11 +128,14 @@ export default function CareerRoadmap() {
     setSelected((current) => current?.id === id ? { ...current, status } : current);
   }
 
+  function toggleDone(node: RoadmapNode) {
+    setNodeStatus(node.id, node.status === "completed" ? "not-started" : "completed");
+  }
+
   const progress = roadmap ? roadmapProgress(roadmap.nodes) : { completed: 0, total: 0, percent: 0 };
   const allNodes = roadmap?.nodes ?? [];
   const nextNode = allNodes.find((node) => node.status !== "completed" && !isBlocked(node, allNodes));
   const activeNodes = allNodes.filter((node) => node.status === "in-progress");
-  const completedProjects = allNodes.filter((node) => node.kind === "project" && node.status === "completed").length;
   const requirementNodes = allNodes.filter((node) => node.kind !== "project");
   const experienceLabel = roadmap?.profile.experience === "beginner" ? "تازه‌کار"
     : roadmap?.profile.experience === "some" ? "کمی تجربه"
@@ -138,9 +152,8 @@ export default function CareerRoadmap() {
     const matchesStatus = statusFilter === "all"
       || (statusFilter === "remaining" && state !== "completed")
       || state === statusFilter;
-    const matchesPhase = phaseFilter === "all" || node.phase === phaseFilter;
-    return matchesStatus && matchesPhase;
-  }) ?? [];
+    return matchesStatus;
+  });
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -154,32 +167,45 @@ export default function CareerRoadmap() {
     <section className="career-shell" aria-labelledby="career-title">
       <header className="career-heading">
         <div>
-          <p className="career-kicker">بر پایه آگهی‌های واقعی جاب‌ویژن</p>
           <h2 id="career-title">نقشه مسیر شغلی</h2>
-          <p>مهارت‌های موردنیاز نقش هدفتان را از آگهی‌های مرتبط پیدا کنید و پیشرفتتان را دنبال کنید.</p>
+          <p>شغل هدفتان را بگویید؛ از آگهی‌های واقعی می‌فهمیم چه مهارت‌هایی لازم دارید و قدم‌به‌قدم همراهتان هستیم.</p>
         </div>
-        {roadmap && <button className="career-reset" type="button" onClick={() => { setRoadmap(null); setInProgressIds([]); setError(null); }}>نقشه جدید</button>}
+        {roadmap && (
+          <button
+            className="career-reset"
+            type="button"
+            onClick={() => {
+              if (progress.completed > 0 && !window.confirm("پیشرفت فعلی پاک می‌شود. نقشه جدید بسازیم؟")) return;
+              setRoadmap(null);
+              setInProgressIds([]);
+              setError(null);
+            }}
+          >
+            نقشه جدید
+          </button>
+        )}
       </header>
 
       {!roadmap && (
         <form className="career-form" onSubmit={analyze}>
-          <div className="career-form-title">
-            <h3>از کجا شروع کنیم؟</h3>
-            <button type="button" className="career-example" onClick={() => setProfile({
-              background: "کارشناسی علوم کامپیوتر",
-              currentRole: "تازه‌کار در هوش مصنوعی",
-              skills: "Python، Git",
-              experience: "beginner",
-              targetRole: "مهندس هوش مصنوعی",
-              location: "",
-              remote: false,
-              hoursPerWeek: 5,
-            })}>بارگذاری نمونه</button>
+          <label className="career-field career-field-wide">
+            می‌خواهید به چه شغلی برسید؟
+            <input required autoFocus value={profile.targetRole} onChange={(event) => updateProfile("targetRole", event.target.value)} placeholder="مثلاً: تحلیلگر داده" />
+          </label>
+          <div className="career-chips career-field-wide" aria-label="پیشنهادها">
+            {TARGET_EXAMPLES.map((role) => (
+              <button key={role} type="button" className={profile.targetRole === role ? "career-chip career-chip-on" : "career-chip"} onClick={() => updateProfile("targetRole", role)}>
+                {role}
+              </button>
+            ))}
           </div>
           <label className="career-field career-field-wide">
-            شغل هدف <span aria-hidden="true">*</span>
-            <input required value={profile.targetRole} onChange={(event) => updateProfile("targetRole", event.target.value)} placeholder="مثلاً: تحلیلگر داده" />
+            چه چیزهایی را الان بلدید؟ <span className="career-optional">اختیاری · با ویرگول جدا کنید</span>
+            <input value={profile.skills} onChange={(event) => updateProfile("skills", event.target.value)} placeholder="مثلاً: Python، Excel، Git" />
           </label>
+          <details className="career-more career-field-wide">
+            <summary>جزئیات بیشتر (اختیاری)</summary>
+            <div className="career-more-body">
           <label className="career-field">
             تحصیلات یا پیشینه
             <input value={profile.background} onChange={(event) => updateProfile("background", event.target.value)} placeholder="مثلاً: کارشناسی مهندسی صنایع" />
@@ -187,10 +213,6 @@ export default function CareerRoadmap() {
           <label className="career-field">
             نقش یا مرحله فعلی
             <input value={profile.currentRole} onChange={(event) => updateProfile("currentRole", event.target.value)} placeholder="مثلاً: کارشناس فروش، دانشجو" />
-          </label>
-          <label className="career-field career-field-wide">
-            مهارت‌ها و ابزارهایی که بلدید
-            <input value={profile.skills} onChange={(event) => updateProfile("skills", event.target.value)} placeholder="با ویرگول جدا کنید؛ مثلاً: Python، Git" />
           </label>
           <label className="career-field">
             میزان تجربه در این حوزه
@@ -212,11 +234,12 @@ export default function CareerRoadmap() {
             <input type="checkbox" checked={profile.remote} onChange={(event) => updateProfile("remote", event.target.checked)} />
             دورکاری هم مناسب است
           </label>
+            </div>
+          </details>
           {error && <div className="career-error" role="alert">{error}</div>}
           <div className="career-form-foot">
-            <p>پیشینه و زمان یادگیری برای شخصی‌سازی نمایش استفاده می‌شود؛ جستجو بر اساس شغل هدف انجام می‌شود.</p>
-            <button className="career-submit" type="submit" disabled={stage !== "idle"}>
-              {stage === "searching" ? "در حال جستجوی آگهی‌ها…" : "تحلیل بازار و ساخت نقشه"}
+            <button className="career-submit" type="submit" disabled={stage !== "idle" || !profile.targetRole.trim()}>
+              {stage === "searching" ? "در حال بررسی آگهی‌ها…" : "ساخت نقشه راه"}
             </button>
           </div>
         </form>
@@ -226,26 +249,27 @@ export default function CareerRoadmap() {
         <>
           {error && <div className="career-error" role="alert">{error}</div>}
           <div className="career-summary">
-            <div className="career-goal"><span>هدف</span><strong>{roadmap.profile.targetRole}</strong><small>{profileSummary || "پیشینه وارد نشده"}</small></div>
+            <div className="career-goal"><span>هدف</span><strong>{roadmap.profile.targetRole}</strong>{profileSummary && <small>{profileSummary}</small>}</div>
             <div className="career-progress-block">
-              <div className="career-progress-label"><span>پیشرفت نقشه</span><strong>{progress.percent}٪</strong></div>
+              <div className="career-progress-label"><span>پیشرفت</span><strong>{fa(progress.percent)}٪</strong></div>
               <div className="career-progress-bar" role="progressbar" aria-label="پیشرفت نقشه" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress.percent}%` }} /></div>
-              <small>{progress.completed} از {progress.total} گام</small>
+              <small>{fa(progress.completed)} از {fa(progress.total)} گام</small>
             </div>
-            <div className="career-summary-stat"><span>گام بعدی</span><strong>{nextNode?.title ?? "همه گام‌ها تکمیل شد"}</strong></div>
+            <div className="career-summary-stat">
+              <span>گام بعدی</span>
+              {nextNode ? (
+                <button type="button" className="career-next" onClick={() => setSelected(nextNode)}>{nextNode.title} ←</button>
+              ) : (
+                <strong>🎉 همه گام‌ها تکمیل شد</strong>
+              )}
+            </div>
           </div>
 
-          <div className="career-market-note">
-            <span className="career-live-dot" />
-            <div><strong>{roadmap.jobs.length} آگهی مرتبط</strong><span> از {roadmap.totalCandidates} نتیجه کاندیدا بررسی شد. تکرار مهارت‌ها فقط شمارش در همین نمونه است؛ آگهی‌ها سطح «ضروری» را از «ترجیحی» جدا نمی‌کنند.</span></div>
-            <span className="career-market-date">{roadmap.profile.hoursPerWeek} ساعت در هفته</span>
-          </div>
-
-          <div className="career-metrics" aria-label="وضعیت فعلی">
-            <div><span>در حال یادگیری</span><strong>{activeNodes.length}</strong><small>{activeNodes.slice(0, 2).map((node) => node.title).join("، ") || "هنوز گامی شروع نشده"}</small></div>
-            <div><span>پروژه‌های تکمیل‌شده</span><strong>{completedProjects}</strong><small>از {roadmap.nodes.filter((node) => node.kind === "project").length} تمرین پیشنهادی</small></div>
-            <div><span>مهارت‌های پرتکرارِ باقی‌مانده</span><strong>{requirementNodes.filter((node) => !node.alreadyKnown && node.count > 1 && node.status !== "completed").length}</strong><small>در بیش از یک آگهی دیده شده</small></div>
-          </div>
+          <p className="career-market-note">
+            <span className="career-live-dot" aria-hidden="true" />
+            بر اساس {fa(roadmap.jobs.length)} آگهی واقعی مرتبط با «{roadmap.profile.targetRole}»
+            {activeNodes.length > 0 && <> · در حال یادگیری: {activeNodes.slice(0, 2).map((node) => node.title).join("، ")}</>}
+          </p>
 
           {requirementNodes.length === 0 && (
             <div className="career-insufficient">
@@ -259,39 +283,39 @@ export default function CareerRoadmap() {
           {requirementNodes.length > 0 && (
             <>
               <div className="career-roadmap-head">
-                <div><h3>مسیر یادگیری</h3><span>{roadmap.nodes.length} گام بر اساس داده‌های موجود</span></div>
-                <div className="career-filters">
-                  <label><span className="sr-only">فیلتر وضعیت</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-                    <option value="all">همه وضعیت‌ها</option><option value="remaining">باقی‌مانده</option><option value="in-progress">در حال یادگیری</option><option value="completed">تکمیل‌شده</option>
-                  </select></label>
-                  <label><span className="sr-only">فیلتر مرحله</span><select value={phaseFilter} onChange={(event) => setPhaseFilter(event.target.value)}>
-                    <option value="all">همه مرحله‌ها</option><option value="requirements">مهارت‌ها و شرایط</option><option value="practice">تمرین</option>
-                  </select></label>
+                <h3>مسیر یادگیری</h3>
+                <div className="career-chips" role="radiogroup" aria-label="نمایش گام‌ها">
+                  {STATUS_FILTERS.map((f) => (
+                    <button key={f.id} type="button" role="radio" aria-checked={statusFilter === f.id} className={statusFilter === f.id ? "career-chip career-chip-on" : "career-chip"} onClick={() => setStatusFilter(f.id)}>
+                      {f.label}
+                    </button>
+                  ))}
                 </div>
               </div>
+              <p className="career-hint">روی دایره بزنید تا گام تکمیل شود؛ روی هر گام بزنید تا جزئیات و منابع را ببینید.</p>
               <div className="career-roadmap">
-                <div className="career-phase-label"><span>۰۱</span><div><strong>نیازهای مشاهده‌شده در بازار</strong><small>به ترتیب تکرار در آگهی‌ها؛ پیش‌نیاز بین مهارت‌ها در داده‌ها مشخص نشده</small></div></div>
+                <div className="career-phase-label"><span>۱</span><div><strong>مهارت‌هایی که بازار می‌خواهد</strong><small>پرتکرارترها اول</small></div></div>
                 <div className="career-track">
                   {visibleNodes.filter((node) => node.phase === "requirements").map((node) => (
-                    <RoadmapCard key={node.id} node={node} nodes={roadmap.nodes} onSelect={setSelected} />
+                    <RoadmapCard key={node.id} node={node} nodes={roadmap.nodes} onSelect={setSelected} onToggle={toggleDone} />
                   ))}
                 </div>
                 {visibleNodes.some((node) => node.phase === "practice") && (
                   <>
-                    <div className="career-phase-label career-phase-practice"><span>۰۲</span><div><strong>کاربرد عملی</strong><small>پیشنهاد عمومی برای تمرین مهارت‌های هدف</small></div></div>
+                    <div className="career-phase-label career-phase-practice"><span>۲</span><div><strong>پروژهٔ عملی</strong><small>برای نمونه‌کار و رزومه</small></div></div>
                     <div className="career-track career-track-practice">
                       {visibleNodes.filter((node) => node.phase === "practice").map((node) => (
-                        <RoadmapCard key={node.id} node={node} nodes={roadmap.nodes} onSelect={setSelected} />
+                        <RoadmapCard key={node.id} node={node} nodes={roadmap.nodes} onSelect={setSelected} onToggle={toggleDone} />
                       ))}
                     </div>
                   </>
                 )}
-                {visibleNodes.length === 0 && <div className="career-filter-empty">گامی با این فیلترها وجود ندارد.</div>}
+                {visibleNodes.length === 0 && <div className="career-filter-empty">در این دسته گامی نیست.</div>}
               </div>
             </>
           )}
 
-          <footer className="career-footnote">مهارت‌ها و شرایط از فیلدهای ساختاریافته آگهی‌های برگشتی استخراج شده‌اند. تمرین پروژه‌ای پیشنهاد عمومی است، نه الزام اعلام‌شده از سوی کارفرما. وضعیت پیشرفت فقط در همین مرورگر ذخیره می‌شود.</footer>
+          <footer className="career-footnote">پیشرفت شما فقط در همین مرورگر ذخیره می‌شود.</footer>
         </>
       )}
 
@@ -301,30 +325,37 @@ export default function CareerRoadmap() {
             <button className="career-drawer-close" type="button" aria-label="بستن جزئیات" onClick={() => setSelected(null)}>×</button>
             <p className="career-kicker">{selected.kind === "project" ? "تمرین پیشنهادی" : selected.kind === "qualification" ? "شرط تحصیلی ثبت‌شده" : "مهارت مشاهده‌شده"}</p>
             <h2 id="drawer-title">{selected.title}</h2>
+            <div className="career-drawer-actions">
+              {isBlocked(selected, roadmap.nodes) ? (
+                <small>اول پیش‌نیازهای زیر را تکمیل کنید.</small>
+              ) : (
+                <>
+                  <button type="button" className={selected.status === "completed" ? "career-act career-act-done" : "career-act career-act-primary"} onClick={() => setNodeStatus(selected.id, selected.status === "completed" ? "not-started" : "completed")}>
+                    {selected.status === "completed" ? "✓ تکمیل شد (بازگردانی)" : "✓ تکمیلش کردم"}
+                  </button>
+                  {selected.status !== "completed" && (
+                    <button type="button" className="career-act" onClick={() => setNodeStatus(selected.id, selected.status === "in-progress" ? "not-started" : "in-progress")}>
+                      {selected.status === "in-progress" ? "توقف یادگیری" : "شروع یادگیری"}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
             {selected.kind === "project" ? (
               <>
-                <p>یک نمونه‌کار مرتبط با {roadmap.profile.targetRole} بسازید و مهارت‌های در حال یادگیری را در آن به‌کار ببرید. نوع پروژه از آگهی‌ها استنتاج نشده است.</p>
-                <h3>معیار تکمیل</h3><p>نمونه‌کار قابل ارائه باشد، README داشته باشد و بتوانید تصمیم‌های فنی و نتیجه را توضیح دهید.</p>
-                {selected.prerequisites.length > 0 && <><h3>پیش‌نیازهای پیشنهادی</h3><ul>{selected.prerequisites.map((id) => <li key={id}>{roadmap.nodes.find((node) => node.id === id)?.title}</li>)}</ul></>}
+                <p>یک نمونه‌کار کوچک مرتبط با «{roadmap.profile.targetRole}» بسازید و مهارت‌هایی را که یاد گرفته‌اید در آن به‌کار ببرید.</p>
+                <h3>کِی تمام است؟</h3><p>وقتی پروژه قابل نمایش است، README دارد و می‌توانید درباره‌اش توضیح دهید.</p>
+                {selected.prerequisites.length > 0 && <><h3>پیش‌نیازها</h3><ul>{selected.prerequisites.map((id) => <li key={id}>{roadmap.nodes.find((node) => node.id === id)?.title}</li>)}</ul></>}
               </>
             ) : (
               <>
-                <p>{selected.kind === "qualification" ? "این شرط در اطلاعات تحصیلی آگهی‌های زیر ثبت شده است؛ وضعیت خود را بررسی کنید." : `این مهارت در ${selected.count} مورد از ${selected.totalAds} آگهی برگشتی دیده شده است و می‌تواند برای نقش «${roadmap.profile.targetRole}» مرتبط باشد.`}</p>
-                {selected.alreadyKnown && <p className="career-known-note">این مورد با مهارت‌هایی که وارد کردید هم‌پوشانی دارد؛ نیازی به شروع دوباره نیست.</p>}
-                {selected.kind === "skill" && <><h3>تمرین پیشنهادی</h3><p>یک تمرین کوچک با «{selected.title}» انجام دهید و خروجی را طوری مستند کنید که بتوانید روش کارتان را توضیح دهید.</p><h3>معیار تکمیل</h3><p>بتوانید یک کار مستقل با این مهارت انجام دهید، نتیجه را بررسی کنید و محدودیت‌های راه‌حل را شرح دهید.</p></>}
-                {selected.resource && <><h3>منبع رسمی</h3><a href={selected.resource.url} target="_blank" rel="noopener noreferrer">{selected.resource.label} ↗</a></>}
-                {selected.evidence.length > 0 && <><h3>شواهد از آگهی‌ها</h3><ul className="career-evidence-list">{selected.evidence.map((job, index) => <li key={`${job.title}-${index}`}>{job.url ? <a href={job.url} target="_blank" rel="noopener noreferrer">{job.title}</a> : job.title}</li>)}</ul></>}
-                <h3>زمان یادگیری</h3><p>{roadmap.profile.hoursPerWeek} ساعت در هفته در پروفایل شما ثبت شده؛ زمان لازم برای این مهارت در داده‌های آگهی‌ها مشخص نیست.</p>
+                <p>{selected.kind === "qualification" ? "این شرط تحصیلی در آگهی‌های زیر آمده است." : `در ${fa(selected.count)} از ${fa(selected.totalAds)} آگهی مرتبط خواسته شده.`}</p>
+                {selected.alreadyKnown && <p className="career-known-note">این را بلدید؛ کافی است تکمیلش کنید.</p>}
+                {selected.kind === "skill" && <><h3>چطور یاد بگیرم؟</h3><p>یک تمرین کوچک با «{selected.title}» انجام دهید؛ وقتی توانستید یک کار مستقل با آن انجام دهید، تمام است.</p></>}
+                {selected.resource && <p><a href={selected.resource.url} target="_blank" rel="noopener noreferrer">📘 {selected.resource.label} ↗</a></p>}
+                {selected.evidence.length > 0 && <><h3>نمونه آگهی‌ها</h3><ul className="career-evidence-list">{selected.evidence.slice(0, 5).map((job, index) => <li key={`${job.title}-${index}`}>{job.url ? <a href={job.url} target="_blank" rel="noopener noreferrer">{job.title}</a> : job.title}</li>)}</ul></>}
               </>
             )}
-            <div className="career-drawer-actions">
-              <label className="career-complete-toggle">
-                <input type="checkbox" checked={selected.status === "completed"} disabled={isBlocked(selected, roadmap.nodes)} onChange={(event) => setNodeStatus(selected.id, event.target.checked ? "completed" : "not-started")} />
-                این گام را تکمیل کردم
-              </label>
-              {selected.status !== "completed" && <button type="button" disabled={isBlocked(selected, roadmap.nodes)} onClick={() => setNodeStatus(selected.id, selected.status === "in-progress" ? "not-started" : "in-progress")}>{selected.status === "in-progress" ? "توقف یادگیری" : "شروع یادگیری"}</button>}
-              {isBlocked(selected, roadmap.nodes) && <small>پس از تکمیل پیش‌نیازهای پیشنهادی فعال می‌شود.</small>}
-            </div>
           </aside>
         </div>
       )}
@@ -332,18 +363,42 @@ export default function CareerRoadmap() {
   );
 }
 
-function RoadmapCard({ node, nodes, onSelect }: { node: RoadmapNode; nodes: RoadmapNode[]; onSelect: (node: RoadmapNode) => void }) {
+function RoadmapCard({ node, nodes, onSelect, onToggle }: {
+  node: RoadmapNode;
+  nodes: RoadmapNode[];
+  onSelect: (node: RoadmapNode) => void;
+  onToggle: (node: RoadmapNode) => void;
+}) {
   const state = displayStatus(node, nodes);
+  const share = node.totalAds ? Math.round((node.count / node.totalAds) * 100) : 0;
   return (
-    <button className={`career-node career-node-${state} career-node-${node.kind}`} type="button" onClick={() => onSelect(node)}>
-      <span className="career-node-dot" aria-hidden="true">{state === "completed" ? "✓" : state === "blocked" ? "–" : ""}</span>
-      <span className="career-node-main">
-        <span className="career-node-label">{node.kind === "qualification" ? "شرط تحصیلی" : node.kind === "project" ? "پروژه" : "مهارت"}{node.alreadyKnown ? " · آشنا هستید" : ""}</span>
-        <strong>{node.title}</strong>
-        <span className="career-node-meta">{node.kind === "project" ? "تمرین پیشنهادی عمومی" : `در ${node.count} از ${node.totalAds} آگهی`}</span>
-      </span>
-      <span className="career-node-state">{state === "completed" ? "تکمیل‌شده" : state === "in-progress" ? "در حال یادگیری" : state === "blocked" ? "در انتظار پیش‌نیاز" : node.count > 1 ? "پرتکرار در نمونه" : "در یک آگهی"}</span>
-      <span className="career-node-open" aria-hidden="true">‹</span>
-    </button>
+    <div className={`career-node career-node-${state} career-node-${node.kind}`}>
+      <button
+        type="button"
+        className="career-node-dot"
+        aria-label={state === "completed" ? `برگرداندن «${node.title}» به انجام‌نشده` : `علامت تکمیل «${node.title}»`}
+        aria-pressed={state === "completed"}
+        disabled={state === "blocked"}
+        onClick={() => onToggle(node)}
+      >
+        {state === "completed" ? "✓" : ""}
+      </button>
+      <button type="button" className="career-node-body" onClick={() => onSelect(node)}>
+        <span className="career-node-main">
+          <strong>{node.title}</strong>
+          <span className="career-node-meta">
+            {node.kind === "project" ? "پروژهٔ پیشنهادی" : node.kind === "qualification" ? "شرط تحصیلی" : `در ${fa(share)}٪ آگهی‌ها`}
+            {node.alreadyKnown && " · بلدید"}
+          </span>
+          {node.kind !== "project" && (
+            <span className="career-node-bar" aria-hidden="true"><span style={{ width: `${share}%` }} /></span>
+          )}
+        </span>
+        {state !== "not-started" && (
+          <span className="career-node-state">{state === "completed" ? "تکمیل‌شده" : state === "in-progress" ? "در حال یادگیری" : "منتظر پیش‌نیاز"}</span>
+        )}
+        <span className="career-node-open" aria-hidden="true">‹</span>
+      </button>
+    </div>
   );
 }
