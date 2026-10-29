@@ -1,50 +1,44 @@
+# docker compose up -d --build        -> UI on http://localhost:3000, API on :8000
+# Needs ./model/multilingual-e5-base and a built index in ./data/index (see README), and .env for the LLM.
 services:
-  llm:
-    image: naji/llm:latest
-    container_name: llm
-    restart: always
+  api:
+    build: .
+    image: jobyab-api:latest
+    container_name: jobyab-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - MONITORING_DB_PATH=/app/logs/requests.sqlite3
     ports:
       - 8000:8000
     volumes:
-      - /tmp/.X11-unix/:/tmp/.X11-unix
-      - ./agent:/app/agent
-      - ./model:/app/model
-      - ./ui:/app/ui
-      - ./hf:/app/hf # Had to override huggingface by mounting hf folder to bypass
-      - ./configs:/app/configs
-      - ./data:/app/data # job search index + crawl cache
-      - ./rfp:/app/rfp
-    runtime: nvidia
+      - ./model:/app/model:ro    # embedding model
+      - ./data:/app/data         # job index + live crawl files
+      - ./logs:/app/logs         # monitoring ledger (token/speed history per request)
+    depends_on:
+      - qdrant                   # crawl cache (+ optional job groups)
+
+  web:
+    build: ./ui/web
+    image: jobyab-web:latest
+    container_name: jobyab-web
+    restart: unless-stopped
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - HF_HUB_OFFLINE=1
-      - HF_MODULES_CACHE=/app/hf
-      - QDRANT_URL=http://qdrant:6333
-    security_opt:
-      - seccomp=unconfined
+      - JOB_API_URL=http://api:8000
+    ports:
+      - 3000:3000
+    depends_on:
+      api:
+        condition: service_healthy
 
   qdrant:
-    # Optional (job groups are disabled by default): docker compose --profile job-groups up -d qdrant
-    profiles: ["job-groups"]
+    # Caches live-crawled ads + embeddings (crawl_cache in configs/job_search.yaml); also used by job groups.
+    # Web UI: http://localhost:6333/dashboard
     image: qdrant/qdrant:v1.15.4
-    container_name: qdrant
-    restart: always
+    container_name: jobyab-qdrant
+    restart: unless-stopped
     ports:
       - 6333:6333
     volumes:
-      - ./data/qdrant:/qdrant/storage   # job groups collection
-
-  web:
-    image: node:22-alpine
-    container_name: job-search-web
-    restart: always
-    working_dir: /app
-    command: sh -c "npm ci && npm run build && npm run start"
-    ports:
-      - 3000:3000
-    volumes:
-      - ./ui/web:/app
-    environment:
-      - JOB_API_URL=http://llm:8000
-    depends_on:
-      - llm
+      - ./data/qdrant:/qdrant/storage   # persists the cache across restarts

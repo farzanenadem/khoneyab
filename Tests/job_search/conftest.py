@@ -1,6 +1,10 @@
+import os
 from datetime import datetime, timezone
 
 import pytest
+
+# Tests must not write the real monitoring ledger (logs/requests.sqlite3).
+os.environ["MONITORING_DB_PATH"] = "off"
 
 from agent.job_search.dataset import deduplicate, normalize_listing
 from agent.job_search.index import Embedder, JobIndex

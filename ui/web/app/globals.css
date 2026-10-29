@@ -483,6 +483,28 @@ kbd {
 .usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
 .usage-bars { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .usage-bar-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: .9rem; flex-wrap: wrap; }
+.usage-chart { display: flex; align-items: flex-end; gap: 3px; height: 110px; margin: 10px 0 6px; direction: ltr; }
+.usage-chart span { flex: 1; min-width: 3px; border-radius: 3px 3px 0 0; opacity: .85; }
+.usage-chart span:hover { opacity: 1; }
+.usage-actions { flex-wrap: wrap; }
+.usage-history .usage-kpis { margin-top: 10px; }
+.usage-history .usage-kpi { background: var(--bg-soft); }
+.usage-kpi-sm { font-size: 1.15rem !important; }
+.usage-kpi small[dir="ltr"] { font-family: ui-monospace, monospace; }
+.usage-links { display: flex; gap: 10px; flex-wrap: wrap; }
+.usage-section { margin: 4px 0 -6px; font-size: 1rem; color: var(--muted); }
+.req-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.req-row { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--surface); }
+.req-row summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; cursor: pointer; font-size: .88rem; }
+.req-row[open] summary { margin-bottom: 6px; }
+.req-endpoint { font-family: ui-monospace, monospace; font-size: .82rem; }
+.req-row summary strong { margin-inline-start: auto; }
+.req-status { font-size: .75rem; padding: 2px 8px; border-radius: 999px; }
+.req-ok { background: var(--green-soft, #e3f6ee); color: var(--green, #0f9d6b); }
+.req-err { background: #fdeaea; color: #d64545; }
+.usage-badge { margin-top: 8px; font-size: .78rem; color: var(--muted); }
+.usage-badge summary { cursor: pointer; width: fit-content; }
+.usage-badge p { margin: 4px 0 0; }
 .usage-table-wrap { overflow-x: auto; margin-top: 8px; }
 .usage-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .usage-table th, .usage-table td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }

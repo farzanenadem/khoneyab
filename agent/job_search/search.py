@@ -178,7 +178,12 @@ class JobSearchService:
         group_weight: float = GROUP_WEIGHT,
         group_top_k: int = 3,
         group_live_keywords: int = 2,
+        crawl_cache=None,
+        cache_max_age_days: float = 14,
     ):
+        self.crawl_cache = crawl_cache if embedder is not None else None
+        self.cache_max_age_days = cache_max_age_days
+        self._cached_at: dict[str, float] = {}  # live/cached ad id -> when it was (re)cached
         # Job groups only shape the search over current ads (query understanding,
         # live-crawl keywords, ranking); dataset rows are never returned.
         self.job_groups = job_groups if embedder is not None else None
@@ -197,6 +202,61 @@ class JobSearchService:
         self._refresh_derived()
         if live_crawler is not None:
             live_crawler.on_enriched(self.update_job)
+        self.cached_jobs_loaded = self._load_crawl_cache()
+
+    def _load_crawl_cache(self) -> int:
+        """Put previously crawled ads (with their stored vectors) back into the index."""
+        if self.crawl_cache is None:
+            return 0
+        jobs, vectors, cached_at = self.crawl_cache.load()
+        keep = [i for i, j in enumerate(jobs) if j.get("id") and j["id"] not in self.index.id_to_pos]
+        if not keep:
+            return 0
+        with self._lock:
+            self.index.add_jobs([jobs[i] for i in keep], vectors[keep])
+            self._cached_at.update({jobs[i]["id"]: cached_at[i] for i in keep})
+            self._refresh_derived()
+        self.validate_cache()  # stale entries from before the restart go right away
+        return sum(1 for i in keep if jobs[i]["id"] in self.index.id_to_pos)
+
+    def _is_stale(self, job: dict, cached_at: float, now: datetime) -> Optional[str]:
+        expires = parse_date(job.get("expires"))
+        if expires is not None and expires < now:
+            return "expired"
+        if self.cache_max_age_days and now.timestamp() - cached_at > self.cache_max_age_days * 86400:
+            return "too_old"
+        return None
+
+    def validate_cache(self) -> dict:
+        """Check every live/cached ad and drop invalid ones from the index and Qdrant.
+
+        Runs at the start of each search. Invalid = the ad's own expiry date has passed, or it
+        was cached longer than `cache_max_age_days` ago (still-listed ads come back fresh with
+        the next live crawl).
+        """
+        now = self.now()
+        with self._lock:
+            stale = {}
+            for job_id, ts in self._cached_at.items():
+                pos = self.index.id_to_pos.get(job_id)
+                if pos is None:
+                    stale[job_id] = "missing"
+                    continue
+                reason = self._is_stale(self.index.jobs[pos], ts, now)
+                if reason:
+                    stale[job_id] = reason
+            if not stale:
+                return {"checked": len(self._cached_at), "removed": 0}
+            checked = len(self._cached_at)
+            removed = self.index.remove_jobs(set(stale))
+            for job_id in stale:
+                self._cached_at.pop(job_id, None)
+            if removed:
+                self._refresh_derived()
+        if self.crawl_cache is not None:
+            self.crawl_cache.delete(list(stale))
+        reasons = {r: sum(1 for v in stale.values() if v == r) for r in set(stale.values())}
+        return {"checked": checked, "removed": removed, "reasons": reasons}
 
     def _refresh_derived(self):
         locations = {j.get("province") for j in self.index.jobs} | {j.get("city") for j in self.index.jobs}
@@ -219,15 +279,23 @@ class JobSearchService:
         with self._lock:
             jobs = [j for j in jobs if j["id"] not in self.index.id_to_pos]
             if jobs:
-                self.index.add_jobs(jobs, self._embed(jobs))
+                vectors = self._embed(jobs)
+                self.index.add_jobs(jobs, vectors)
                 self._refresh_derived()
+                stamp = self.now().timestamp()
+                self._cached_at.update({j["id"]: stamp for j in jobs})
+                if self.crawl_cache is not None:
+                    self.crawl_cache.put(jobs, vectors)
             return len(jobs)
 
     def update_job(self, job: dict) -> None:
         """Replace a job with its enriched version (called from the live-crawl worker)."""
         with self._lock:
             if job["id"] in self.index.id_to_pos:
-                self.index.replace_job(job, self._embed([job])[0])
+                vector = self._embed([job])[0]
+                self.index.replace_job(job, vector)
+                if self.crawl_cache is not None:
+                    self.crawl_cache.put([job], vector[None, :])
                 pos = self.index.id_to_pos[job["id"]]
                 self._canon_all[pos] = canon(" \n ".join(job_fields(job).values()))
                 self._canon_core[pos] = self._core_text(job)
@@ -424,12 +492,14 @@ class JobSearchService:
         # without groups, lexical-only methods do not embed at all.
         wants_vector = self.job_groups is not None or method in ("hybrid", "semantic")
         query_vector = self.embedder.embed_query(query) if (self.embedder is not None and query and wants_vector) else None
+        cache_check = self.validate_cache()
         placements = self.place_groups(query, query_vector) if query else []
         group_keywords = [k for k in (placements[0]["group"]["search_keywords"] if placements else [])][: self.group_live_keywords]
         live_info = self.live_crawl(query, keywords, group_keywords) if (live and query) else {"enabled": False}
         with self._lock:
             result = self._search(query, filters, top_k, method, sort, query_vector, placements)
         result["live"] = live_info
+        result["cache_check"] = cache_check
         # Background knowledge from the JobVision dataset (2022-2024), not job openings.
         result["groups"] = [public_group(p) for p in placements]
         return result

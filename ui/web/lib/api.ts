@@ -178,6 +178,7 @@ export type ChatResponse = {
   response: string;
   thread_id: string;
   sources: { content: string; metadata: { job_id?: string; title?: string; url?: string } }[];
+  usage?: TokenUsage;
 };
 
 export function sendChat(message: string, threadId: string) {
@@ -248,16 +249,56 @@ export type UsageCall = {
   seconds: number;
 };
 
+/** Tokens of one HTTP request (also returned with each /chat answer). */
+export type TokenUsage = {
+  request_id: string | null;
+  llm_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  seconds: number;
+  complete: boolean;
+  status: "reported" | "partial" | "not_used";
+};
+
+export type RequestUsage = TokenUsage & {
+  endpoint: string;
+  time: number;
+  status_code: number;
+  duration_ms: number;
+  calls: { step: string; model: string; input_tokens: number; output_tokens: number; seconds: number }[];
+};
+
 export type UsageSummary = {
   since: number;
-  total: Omit<UsageRow, "name"> & { avg_tokens_per_call: number; avg_seconds_per_call: number };
+  total: Omit<UsageRow, "name"> & {
+    avg_tokens_per_call: number;
+    avg_seconds_per_call: number;
+    p50_seconds: number;
+    p95_seconds: number;
+    output_tokens_per_second: number;
+  };
   errors: number;
   calls_without_usage: number;
   pricing_configured: boolean;
-  by_feature: UsageRow[];
+  by_feature: (UsageRow & { p50_seconds: number; p95_seconds: number })[];
   by_model: UsageRow[];
   by_step: UsageRow[];
   recent: UsageCall[];
+  timeline: { time: number; total_tokens: number; seconds: number; feature: string }[];
+  requests: RequestUsage[];
+  history: {
+    requests: number;
+    total_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
+    avg_duration_ms: number;
+    errors: number;
+    llm_requests: number;
+    since: number | null;
+    path: string;
+  } | null;
+  endpoints: { name: string; requests: number; avg_ms: number; p95_ms: number }[];
 };
 
 export const getUsage = () => request<UsageSummary>("/usage");

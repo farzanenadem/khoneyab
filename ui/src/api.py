@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,7 +15,7 @@ from yaml.loader import SafeLoader
 
 from agent.job_search.search import SearchFilters
 from agent.utilities.persian_text import normalize_persian
-from agent.utilities.usage import USAGE, track_feature
+from agent.utilities.usage import USAGE, begin_request, create_ledger, request_usage, track_feature
 
 app_graph = None
 resume_llm = None
@@ -63,6 +64,12 @@ async def lifespan(app: FastAPI):
             print(f"Tracing disabled: {e}")
 
     # Job search is the primary feature; a missing index must not crash the API.
+    # Persistent request log for the monitoring tab (MONITORING_DB_PATH=off disables it).
+    if USAGE.ledger is None:
+        USAGE.ledger = create_ledger()
+        if USAGE.ledger is not None:
+            print(f"Monitoring ledger: {USAGE.ledger.path}")
+
     global job_search, job_search_error
     if job_search is None:
         try:
@@ -124,6 +131,7 @@ class ChatResponse(BaseModel):
     raw_response_keys: list[str] = []
     sources: list[SourceDoc] = []
     debug_info: list[Any] = []
+    usage: Dict[str, Any] = {}  # tokens of this request (see agent/utilities/usage.py)
 
 
 class JobSearchFilters(BaseModel):
@@ -167,6 +175,24 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def time_requests(request, call_next):
+    """Per-request latency and LLM usage for the monitoring tab (monitoring routes themselves are skipped)."""
+    started = time.perf_counter()
+    req = begin_request(request.url.path)
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = req["request_id"]
+        return response
+    finally:
+        route = request.scope.get("route")
+        path = getattr(route, "path", None)
+        if path and not path.startswith(("/usage", "/health")):
+            USAGE.record_request(f"{request.method} {path}", time.perf_counter() - started, req, status_code)
+
+
 def serialize_docs(docs, k=5, max_chars=1200):
     out = []
     for d in (docs or [])[:k]:
@@ -187,6 +213,10 @@ async def health_check():
         "job_search_ready": job_search is not None,
         "job_search_error": job_search_error,
         "jobs_indexed": len(job_search.index) if job_search is not None else 0,
+        "crawl_cache": None if job_search is None or job_search.crawl_cache is None else {
+            "loaded_on_start": job_search.cached_jobs_loaded,
+            "cached": job_search.crawl_cache.count(),
+        },
     }
 
 
@@ -197,8 +227,11 @@ def llm_usage():
 
 
 @app.post("/usage/reset")
-def reset_llm_usage():
+def reset_llm_usage(history: bool = False):
+    """Reset the live counters; `?history=true` also clears the persistent request log."""
     USAGE.reset()
+    if history and USAGE.ledger is not None:
+        USAGE.ledger.clear()
     return {"status": "reset"}
 
 
@@ -353,6 +386,7 @@ async def chat(request: ChatRequest):
             raw_response_keys=[],
             sources=serialize_docs(result.get("documents", [])),
             debug_info=result.get("debug_info", []),
+            usage=request_usage(),
         )
 
     except Exception as e:

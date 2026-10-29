@@ -44,6 +44,18 @@ python -m uvicorn ui.src.api:app --port 8000                        # backend
 cd ui/web && npm install && npm run dev                             # UI → http://localhost:3000
 ```
 
+## Docker
+Needs the embedding model in `./model/multilingual-e5-base`, a built index in `./data/index` (steps above)
+and `.env`. Both are mounted into the container, not baked into the image.
+```bash
+docker compose up -d --build     # images jobyab-api + jobyab-web; UI → http://localhost:3000, API → :8000
+docker compose logs -f api
+```
+Qdrant (`:6333`) caches every live-crawled ad with its embedding (`crawl_cache` in
+`configs/job_search.yaml`); on start the API reloads them, so crawled ads survive restarts
+without re-crawling or re-embedding. `/health` shows `crawl_cache.cached`.
+`./build.sh` builds and tags both images with the version from `pyproject.toml`.
+
 ## API
 | Endpoint | Purpose |
 |---|---|
@@ -52,6 +64,8 @@ cd ui/web && npm install && npm run dev                             # UI → htt
 | `POST /jobs/groups` | optional: `{text, top_k}` → closest job groups (fit, matched/missing key skills); 503 while job groups are disabled |
 | `GET /jobs/groups/{id}` | optional: one job group's profile |
 | `POST /chat` | `{message, thread_id}` → grounded answer + source ads |
+| `GET /usage` | LLM tokens, latency (p50/p95), output tokens/s and per-route API timing since start |
+| `POST /usage/reset` | reset the usage counters |
 
 ## Tests
 ```bash

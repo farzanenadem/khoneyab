@@ -2,9 +2,16 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Markdown from "@/components/Markdown";
-import { sendChat } from "@/lib/api";
+import { TokenUsage, sendChat } from "@/lib/api";
 
-type Message = { role: "user" | "assistant"; content: string; sources?: { title?: string; url?: string }[] };
+type Message = {
+  role: "user" | "assistant";
+  content: string;
+  sources?: { title?: string; url?: string }[];
+  usage?: TokenUsage;
+};
+
+const fa = (n: number) => n.toLocaleString("fa-IR");
 
 function newThreadId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -48,7 +55,7 @@ export default function ChatPanel({ seed }: { seed?: ChatSeed | null }) {
       const res = await sendChat(text, threadId);
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: res.response, sources: res.sources.map((s) => s.metadata) },
+        { role: "assistant", content: res.response, sources: res.sources.map((s) => s.metadata), usage: res.usage },
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -97,6 +104,18 @@ export default function ChatPanel({ seed }: { seed?: ChatSeed | null }) {
                   ) : null,
                 )}
               </div>
+            )}
+            {m.usage && m.usage.llm_calls > 0 && (
+              <details className="usage-badge">
+                <summary>
+                  ⚡ {fa(m.usage.total_tokens)} توکن · {fa(m.usage.seconds)} ثانیه
+                  {!m.usage.complete && " · ناقص"}
+                </summary>
+                <p>
+                  ورودی {fa(m.usage.input_tokens)} · خروجی {fa(m.usage.output_tokens)} · {fa(m.usage.llm_calls)} فراخوانی مدل
+                </p>
+                {!m.usage.complete && <p>سرویس مدل مصرف بعضی فراخوانی‌ها را اعلام نکرد؛ عدد فقط جمع موارد اعلام‌شده است.</p>}
+              </details>
             )}
           </div>
         ))}

@@ -162,6 +162,18 @@ class JobIndex:
         self.id_to_pos = {j["id"]: i for i, j in enumerate(self.jobs)}
         self.meta["count"] = len(self.jobs)
 
+    def remove_jobs(self, ids: set) -> int:
+        """Drop jobs by id (stale live/cached ads) and refresh the lexical index."""
+        keep = [i for i, j in enumerate(self.jobs) if j["id"] not in ids]
+        removed = len(self.jobs) - len(keep)
+        if removed:
+            self.jobs = [self.jobs[i] for i in keep]
+            self.embeddings = self.embeddings[keep]
+            self.bm25 = BM25([bm25_tokens(j) for j in self.jobs])
+            self.id_to_pos = {j["id"]: i for i, j in enumerate(self.jobs)}
+            self.meta["count"] = len(self.jobs)
+        return removed
+
     def replace_job(self, job: dict, embedding: np.ndarray) -> None:
         pos = self.id_to_pos[job["id"]]
         self.jobs[pos] = job

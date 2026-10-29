@@ -19,6 +19,33 @@ const STEPS: Record<string, string> = {
 const fa = (n: number) => Math.round(n).toLocaleString("fa-IR");
 const usd = (n: number | null) => (n === null ? "—" : `$${n < 0.01 ? n.toFixed(5) : n.toFixed(3)}`);
 
+const sec = (n: number) => `${n.toLocaleString("fa-IR")} ثانیه`;
+const ms = (n: number) => (n >= 1000 ? sec(Math.round(n / 100) / 10) : `${fa(n)} میلی‌ثانیه`);
+
+/** One bar per recent call (oldest to newest); height is relative to the largest value shown. */
+function Chart({ values, title, unit, className }: { values: number[]; title: string; unit: string; className: string }) {
+  const max = Math.max(1e-9, ...values);
+  return (
+    <div className="card">
+      <h3>{title}</h3>
+      {values.length === 0 ? (
+        <p className="muted small">هنوز داده‌ای نیست.</p>
+      ) : (
+        <>
+          <div className="usage-chart" role="img" aria-label={`${title}: آخرین ${fa(values.length)} فراخوانی`}>
+            {values.map((v, i) => (
+              <span key={i} className={className} style={{ height: `${Math.max(4, (v / max) * 100)}%` }} title={`${v.toLocaleString("fa-IR")} ${unit}`} />
+            ))}
+          </div>
+          <p className="muted small">
+            آخرین {fa(values.length)} فراخوانی · بیشترین: {max.toLocaleString("fa-IR", { maximumFractionDigits: 1 })} {unit}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Bars({ rows, label }: { rows: UsageRow[]; label: (n: string) => string }) {
   const max = Math.max(1, ...rows.map((r) => r.total_tokens));
   if (rows.length === 0) return <p className="muted small">هنوز داده‌ای نیست.</p>;
@@ -46,12 +73,14 @@ export default function UsagePanel() {
   const [data, setData] = useState<UsageSummary | null>(null);
   const [error, setError] = useState(false);
   const [live, setLive] = useState(true);
+  const [updated, setUpdated] = useState("");
 
   const load = useCallback(() => {
     getUsage()
       .then((d) => {
         setData(d);
         setError(false);
+        setUpdated(new Date().toLocaleTimeString("fa-IR"));
       })
       .catch(() => setError(true));
   }, []);
@@ -82,12 +111,37 @@ export default function UsagePanel() {
           <label className="inline small">
             <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> به‌روزرسانی زنده
           </label>
+          <span className="muted small">آخرین دریافت: {updated}</span>
+          <button type="button" className="btn" onClick={load}>تازه‌سازی</button>
           <button type="button" className="link-btn" onClick={() => resetUsage().then(load)}>
             صفر کردن شمارنده‌ها
           </button>
         </div>
       </header>
 
+      {data.history && (
+        <div className="card usage-history">
+          <h3>کل تاریخچه (ذخیره‌شده، با ری‌استارت پاک نمی‌شود)</h3>
+          <div className="usage-kpis">
+            <div className="usage-kpi"><span>درخواست ثبت‌شده</span><strong>{fa(data.history.requests)}</strong>
+              <small>{fa(data.history.llm_requests)} با مدل زبانی · {fa(data.history.errors)} ناموفق</small></div>
+            <div className="usage-kpi"><span>کل توکن</span><strong>{fa(data.history.total_tokens)}</strong>
+              <small>ورودی {fa(data.history.input_tokens)} · خروجی {fa(data.history.output_tokens)}</small></div>
+            <div className="usage-kpi"><span>میانگین زمان پاسخ</span><strong>{ms(data.history.avg_duration_ms)}</strong></div>
+            <div className="usage-kpi"><span>از تاریخ</span>
+              <strong className="usage-kpi-sm">{data.history.since ? new Date(data.history.since * 1000).toLocaleDateString("fa-IR") : "—"}</strong>
+              <small dir="ltr">{data.history.path}</small></div>
+          </div>
+        </div>
+      )}
+
+      <div className="usage-links">
+        <a className="btn" href="http://localhost:6333/dashboard" target="_blank" rel="noopener noreferrer">
+          داشبورد Qdrant (آگهی‌های کش‌شده) ↗
+        </a>
+      </div>
+
+      <h3 className="usage-section">از آخرین راه‌اندازی سرور</h3>
       <div className="usage-kpis">
         <div className="usage-kpi">
           <span>کل توکن</span>
@@ -101,6 +155,16 @@ export default function UsagePanel() {
           <span>میانگین هر فراخوانی</span>
           <strong>{fa(t.avg_tokens_per_call)}</strong>
           <small>توکن · {t.avg_seconds_per_call.toLocaleString("fa-IR")} ثانیه</small>
+        </div>
+        <div className="usage-kpi">
+          <span>سرعت تولید پاسخ</span>
+          <strong>{fa(t.output_tokens_per_second)}</strong>
+          <small>توکن خروجی در ثانیه</small>
+        </div>
+        <div className="usage-kpi">
+          <span>زمان پاسخ مدل (میانه)</span>
+          <strong>{sec(t.p50_seconds)}</strong>
+          <small>۹۵٪ فراخوانی‌ها کمتر از {sec(t.p95_seconds)}</small>
         </div>
         <div className="usage-kpi">
           <span>هزینهٔ تخمینی</span>
@@ -150,8 +214,115 @@ export default function UsagePanel() {
         </div>
       </div>
 
+      <div className="usage-grid">
+        <Chart title="توکن هر فراخوانی" unit="توکن" className="usage-in" values={data.timeline.map((c) => c.total_tokens)} />
+        <Chart title="زمان هر فراخوانی" unit="ثانیه" className="usage-out" values={data.timeline.map((c) => c.seconds)} />
+      </div>
+
       <div className="card">
-        <h3>آخرین فراخوانی‌ها</h3>
+        <h3>سرعت هر قابلیت</h3>
+        {data.by_feature.length === 0 ? (
+          <p className="muted small">هنوز داده‌ای نیست.</p>
+        ) : (
+          <div className="usage-table-wrap">
+            <table className="usage-table">
+              <thead>
+                <tr><th>قابلیت</th><th>فراخوانی</th><th>میانه</th><th>۹۵٪ کمتر از</th><th>توکن</th></tr>
+              </thead>
+              <tbody>
+                {data.by_feature.map((f) => (
+                  <tr key={f.name}>
+                    <td>{FEATURES[f.name] ?? f.name}</td>
+                    <td>{fa(f.calls)}</td>
+                    <td>{sec(f.p50_seconds)}</td>
+                    <td>{sec(f.p95_seconds)}</td>
+                    <td>{fa(f.total_tokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>سرعت پاسخ‌گویی API</h3>
+        <p className="muted small">زمان کل هر درخواست، شامل جستجو که مدل زبانی ندارد.</p>
+        {data.endpoints.length === 0 ? (
+          <p className="muted small">هنوز درخواستی ثبت نشده.</p>
+        ) : (
+          <div className="usage-table-wrap">
+            <table className="usage-table">
+              <thead>
+                <tr><th>مسیر</th><th>درخواست</th><th>میانگین</th><th>۹۵٪ کمتر از</th></tr>
+              </thead>
+              <tbody>
+                {data.endpoints.map((e) => (
+                  <tr key={e.name}>
+                    <td dir="ltr">{e.name}</td>
+                    <td>{fa(e.requests)}</td>
+                    <td>{ms(e.avg_ms)}</td>
+                    <td>{ms(e.p95_ms)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>آخرین درخواست‌ها</h3>
+        <p className="muted small">هر ردیف یک درخواست کاربر است؛ برای دیدن مراحل مدل زبانی بازش کنید.</p>
+        {data.requests.length === 0 ? (
+          <p className="muted small">هنوز درخواستی ثبت نشده؛ یک جستجو یا گفتگو انجام دهید.</p>
+        ) : (
+          <div className="req-list">
+            {data.requests.slice(0, 25).map((r) => (
+              <details className="req-row" key={r.request_id ?? r.time}>
+                <summary>
+                  <span className={r.status_code >= 400 ? "req-status req-err" : "req-status req-ok"}>
+                    {r.status_code >= 400 ? "ناموفق" : "موفق"} · {r.status_code}
+                  </span>
+                  <bdi dir="ltr" className="req-endpoint">{r.endpoint}</bdi>
+                  <span className="muted small">{new Date(r.time * 1000).toLocaleTimeString("fa-IR")}</span>
+                  <span>{ms(r.duration_ms)}</span>
+                  <strong>
+                    {r.status === "not_used" ? "بدون مدل زبانی" : `${fa(r.total_tokens)} توکن${r.complete ? "" : " · ناقص"}`}
+                  </strong>
+                </summary>
+                <p className="small muted">
+                  شناسه: <bdi dir="ltr">{r.request_id}</bdi> · ورودی {fa(r.input_tokens)} · خروجی {fa(r.output_tokens)} ·{" "}
+                  {fa(r.llm_calls)} فراخوانی مدل
+                </p>
+                {r.calls.length > 0 && (
+                  <div className="usage-table-wrap">
+                    <table className="usage-table">
+                      <thead>
+                        <tr><th>مرحله</th><th>مدل</th><th>ورودی</th><th>خروجی</th><th>ثانیه</th></tr>
+                      </thead>
+                      <tbody>
+                        {r.calls.map((c, i) => (
+                          <tr key={i}>
+                            <td>{c.step ? (STEPS[c.step] ?? c.step) : "—"}</td>
+                            <td dir="ltr">{c.model}</td>
+                            <td>{fa(c.input_tokens)}</td>
+                            <td>{fa(c.output_tokens)}</td>
+                            <td>{c.seconds.toLocaleString("fa-IR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </details>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>آخرین فراخوانی‌های مدل</h3>
         {data.recent.length === 0 ? (
           <p className="muted small">هنوز فراخوانی‌ای ثبت نشده؛ در تب «جستجو و دستیار» یک سؤال از دستیار بپرسید.</p>
         ) : (

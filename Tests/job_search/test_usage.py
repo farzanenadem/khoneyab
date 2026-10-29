@@ -82,3 +82,81 @@ def test_usage_endpoint_and_reset(monkeypatch):
         assert data["total"]["total_tokens"] == 15
         assert client.post("/usage/reset").json()["status"] == "reset"
         assert client.get("/usage").json()["total"]["calls"] == 0
+
+
+def test_speed_metrics_percentiles_and_throughput():
+    tracker = UsageTracker()
+    for seconds, out in [(1.0, 100), (2.0, 100), (3.0, 100), (10.0, 100)]:
+        tracker.record(feature="chat", model="m", step="", input_tokens=10, output_tokens=out, seconds=seconds)
+    s = tracker.summary()["total"]
+    assert s["p50_seconds"] in (2.0, 3.0) and s["p95_seconds"] == 10.0
+    assert s["output_tokens_per_second"] == pytest.approx(400 / 16, abs=0.1)
+    chat = tracker.summary()["by_feature"][0]
+    assert chat["p95_seconds"] == 10.0
+    assert len(tracker.summary()["timeline"]) == 4
+
+
+def test_request_latency_is_recorded_per_route(monkeypatch):
+    monkeypatch.setattr(api, "load_api_config", lambda: {"chat_enabled": False, "resume_llm_enabled": False})
+    USAGE.reset()
+    with TestClient(api.app) as client:
+        client.get("/jobs/filters")
+        client.get("/health")
+        endpoints = {e["name"]: e for e in client.get("/usage").json()["endpoints"]}
+    assert "GET /jobs/filters" in endpoints and endpoints["GET /jobs/filters"]["requests"] == 1
+    assert not any(name.startswith(("GET /usage", "GET /health")) for name in endpoints)
+
+
+def test_calls_are_attributed_to_the_current_request():
+    from agent.utilities.usage import begin_request, request_usage
+
+    tracker = UsageTracker()
+    req = begin_request("/chat")
+    tracker.record(feature="chat", model="m", step="router", input_tokens=40, output_tokens=5, seconds=0.5)
+    tracker.record(feature="chat", model="m", step="generate", input_tokens=900, output_tokens=200, seconds=3.0)
+    u = request_usage(req)
+    assert u["llm_calls"] == 2 and u["total_tokens"] == 1145 and u["status"] == "reported"
+    tracker.record_request("POST /chat", 3.6, req, 200)
+    row = tracker.summary()["requests"][0]
+    assert row["endpoint"] == "POST /chat" and row["duration_ms"] == 3600
+    assert [c["step"] for c in row["calls"]] == ["router", "generate"]
+
+
+def test_search_request_is_logged_without_llm(monkeypatch):
+    monkeypatch.setattr(api, "load_api_config", lambda: {"chat_enabled": False, "resume_llm_enabled": False})
+    USAGE.reset()
+    with TestClient(api.app) as client:
+        r = client.get("/jobs/filters")
+        assert r.headers.get("X-Request-ID")
+        rows = client.get("/usage").json()["requests"]
+    assert rows[0]["endpoint"] == "GET /jobs/filters"
+    assert rows[0]["status"] == "not_used" and rows[0]["llm_calls"] == 0
+
+
+def test_ledger_persists_requests_across_restarts(tmp_path):
+    from agent.utilities.usage import RequestLedger, begin_request
+
+    path = str(tmp_path / "requests.sqlite3")
+    tracker = UsageTracker(RequestLedger(path))
+    req = begin_request("/chat")
+    tracker.record(feature="chat", model="m", step="generate", input_tokens=900, output_tokens=100, seconds=2.0)
+    tracker.record_request("POST /chat", 2.5, req, 200)
+    tracker.record_request("POST /jobs/search", 0.3, begin_request("/jobs/search"), 500)
+
+    restarted = UsageTracker(RequestLedger(path))  # new process, same file
+    s = restarted.summary()
+    assert s["history"]["requests"] == 2 and s["history"]["total_tokens"] == 1000
+    assert s["history"]["errors"] == 1 and s["history"]["llm_requests"] == 1
+    assert s["requests"][0]["endpoint"] == "POST /jobs/search"
+    assert s["requests"][1]["calls"][0]["step"] == "generate"
+    assert s["total"]["calls"] == 0  # live counters start from zero, history does not
+
+
+def test_ledger_keeps_only_newest_records(tmp_path):
+    from agent.utilities.usage import RequestLedger, begin_request
+
+    ledger = RequestLedger(str(tmp_path / "r.sqlite3"), max_records=100)
+    tracker = UsageTracker(ledger)
+    for _ in range(130):
+        tracker.record_request("GET /jobs/filters", 0.01, begin_request("/jobs/filters"), 200)
+    assert ledger.totals()["requests"] == 100

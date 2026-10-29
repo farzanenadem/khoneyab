@@ -48,6 +48,17 @@ live_crawl:
 # re-rank CURRENT ads. Dataset rows are never returned as jobs.
 # Disabled because its effect on ranking accuracy is not measured yet; while disabled, search
 # and live crawl behave exactly as without it and /jobs/groups answers 503.
+# Live-crawled ads (+ their embeddings) are cached in Qdrant and reloaded on API start,
+# so they survive restarts without re-crawling or re-embedding. Optional: without a
+# reachable Qdrant the API logs one line and works as before.
+crawl_cache:
+  enabled: true
+  collection: crawled_jobs
+  qdrant_url: http://localhost:6333  # overridden by the QDRANT_URL env var
+  # Checked on every search: expired ads, and ads cached longer than this, are removed
+  # from the index and Qdrant (still-listed ones return with the next live crawl).
+  max_age_days: 14
+
 # To try it: pip install ".[job-groups]"; docker compose --profile job-groups up -d qdrant;
 #           python -m agent.job_search.build_job_groups_cli; set enabled: true; restart the API.
 job_groups:

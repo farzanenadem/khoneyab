@@ -84,7 +84,25 @@ def create_search_service(config: Optional[dict] = None, embedder: Optional[Embe
         group_weight=float(groups_conf.get("ranking_weight", 0.10)),
         group_top_k=int(groups_conf.get("top_k", 3)),
         group_live_keywords=int(groups_conf.get("live_keywords", 2)),
+        crawl_cache=create_crawl_cache(config, embedder, index),
+        cache_max_age_days=float((config.get("crawl_cache") or {}).get("max_age_days", 14)),
     )
+
+
+def create_crawl_cache(config: dict, embedder: Optional[Embedder], index: JobIndex):
+    """Qdrant cache for live-crawled ads, or None when disabled / Qdrant unreachable."""
+    conf = config.get("crawl_cache") or {}
+    if not conf.get("enabled") or embedder is None or not index.meta.get("dim"):
+        return None
+    try:
+        from agent.job_search.crawl_cache import CrawlCache
+
+        client = create_qdrant(conf)
+        client.get_collections()  # fail fast if Qdrant is not running
+        return CrawlCache(client, embedder.model_name, int(index.meta["dim"]), conf.get("collection", "crawled_jobs"))
+    except Exception as e:
+        print(f"Crawl cache unavailable (search works without it): {type(e).__name__}")
+        return None
 
 
 def create_qdrant(groups_conf: dict):
