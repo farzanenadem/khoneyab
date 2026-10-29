@@ -1,0 +1,12 @@
+args:
+  --labels:
+    default: ./data/eval/labels.json
+    help: Labelled queries (query, relevant job ids, judged job ids)
+
+  --methods:
+    default: hybrid,semantic,bm25,keyword
+    help: Comma-separated ranking methods to compare (keyword = overlap baseline)
+
+  --output:
+    default: ./data/eval/report.json
+    help: Where to write the per-query report

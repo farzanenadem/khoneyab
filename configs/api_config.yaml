@@ -1,0 +1,8 @@
+trace_url: http://172.19.66.226:4317
+trace_name: llm-agent-prod
+port: 8000
+# Phoenix/OpenTelemetry tracing (needs arize-phoenix and the trace collector above).
+trace_enabled: false
+# Conversational job assistant (/chat). Needs LLM_* in .env (see .env.example).
+chat_enabled: true
+chat_graph_config: configs/job_agent_graph.yaml

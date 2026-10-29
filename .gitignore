@@ -1,0 +1,18 @@
+.venv
+.venv_agent
+.pyc
+__pycache__
+weaviate*
+.idea
+.vscode
+model
+logs
+hf
+data
+node_modules
+.pytest_cache
+.env
+# Scraped JobVision ads and the RFP are not published (JobVision terms / organiser document)
+rfp/
+.env
+*.log

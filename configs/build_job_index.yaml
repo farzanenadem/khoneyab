@@ -1,0 +1,20 @@
+args:
+  --jobs:
+    default: ./rfp/jobs.jsonl
+    help: JobVision listing export (one JSON job per line)
+
+  --live-jobs:
+    default: ./data/live/jobs.jsonl
+    help: Ads collected by the live crawl during searches (merged if present)
+
+  --details-dir:
+    default: ./data/jobvision/details
+    help: Cached detail pages from enrich_jobs_cli (optional; missing jobs are indexed without description)
+
+  --config:
+    default: ./configs/job_search.yaml
+    help: Job search config (embedding model, index directory)
+
+  --device:
+    default: ""
+    help: Override embedding device for the build (cpu / cuda); empty = use config

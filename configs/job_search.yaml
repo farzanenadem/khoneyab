@@ -1,0 +1,40 @@
+# Runtime configuration of the descriptive job search (API + CLIs).
+index_dir: ./data/index
+synonyms: ./configs/job_search_synonyms.yaml
+
+embedding:
+  name: HuggingFace
+  args:
+    # intfloat/multilingual-e5-base, downloaded to ./model (see README).
+    # A Hugging Face model id also works when the machine is online.
+    model: ./model/multilingual-e5-base
+    device: cpu
+    truncate_dim: 768
+    batch_size: 32
+  # e5 models expect these prefixes.
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+
+ranking:
+  semantic_weight: 0.45
+  lexical_weight: 0.25
+  concept_weight: 0.15
+  preference_weight: 0.15
+  recency_weight: 0.10          # newer ads rank higher among equally relevant ones
+  recency_half_life_days: 14    # an ad this old gets half the recency score
+  min_relative_score: 0.6       # drop ads whose topic match is < 60% of the best match
+  default_top_k: 10
+  max_top_k: 50
+
+# Live crawl: on each search the user's keywords are also searched on jobvision.ir
+# (public list API, allowed by its robots.txt) in parallel; new ads join the index.
+live_crawl:
+  enabled: true
+  store: ./data/live/jobs.jsonl      # new raw ads, merged by build_job_index_cli
+  pages_per_keyword: 1               # 30 ads per page
+  max_keywords: 4
+  delay: 0.3                         # min seconds between API requests (all threads)
+  timeout: 10
+  enrich: true                       # fetch job pages for descriptions in the background
+  enrich_delay: 1.5
+  details_dir: ./data/jobvision/details

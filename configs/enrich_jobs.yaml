@@ -1,0 +1,20 @@
+args:
+  --jobs:
+    default: ./rfp/jobs.jsonl
+    help: JobVision listing export (one JSON job per line)
+
+  --cache-dir:
+    default: ./data/jobvision/details
+    help: Directory where per-job detail records are cached
+
+  --delay:
+    default: 1.5
+    help: Minimum seconds between requests (rate limit)
+
+  --limit:
+    default: 0
+    help: Only enrich the first N jobs (0 = all)
+
+  --user-agent:
+    default: "RahnamaHackathonJobSearchBot/1.0 (educational prototype; low-rate, cached)"
+    help: User-Agent that identifies the collector

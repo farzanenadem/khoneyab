@@ -1,0 +1,38 @@
+services:
+  llm:
+    image: naji/llm:latest
+    container_name: llm
+    restart: always
+    ports:
+      - 8000:8000
+    volumes:
+      - /tmp/.X11-unix/:/tmp/.X11-unix
+      - ./agent:/app/agent
+      - ./model:/app/model
+      - ./ui:/app/ui
+      - ./hf:/app/hf # Had to override huggingface by mounting hf folder to bypass
+      - ./configs:/app/configs
+      - ./data:/app/data # job search index + crawl cache
+      - ./rfp:/app/rfp
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HUB_OFFLINE=1
+      - HF_MODULES_CACHE=/app/hf
+    security_opt:
+      - seccomp=unconfined
+
+  web:
+    image: node:22-alpine
+    container_name: job-search-web
+    restart: always
+    working_dir: /app
+    command: sh -c "npm ci && npm run build && npm run start"
+    ports:
+      - 3000:3000
+    volumes:
+      - ./ui/web:/app
+    environment:
+      - JOB_API_URL=http://llm:8000
+    depends_on:
+      - llm

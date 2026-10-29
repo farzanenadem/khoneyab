@@ -1,0 +1,20 @@
+# Conversational job assistant (/chat). "url: env" reads LLM_BASE_URL / LLM_API_KEY from .env
+# (Metis DeepSeek); "name: env" = LLM_MODEL (final answer), "name: env_fast" = LLM_FAST_MODEL
+# (routing, follow-up rewrite, ad filtering). A real URL selects an Ollama server instead.
+coordinator_router:
+  model: {url: env, name: env_fast}
+rewrite_followup:
+  enable: True
+  model: {url: env, name: env_fast}
+retriever:
+  top_k: 6            # ads passed to the LLM (live crawl runs on every request)
+fallback:
+  interactive: True
+  model: {url: env, name: env_fast}
+generate_with_context:
+  interactive: False
+  model: {url: env, name: env}
+filter_docs:
+  enable: True
+  batch_size: 3
+  model: {url: env, name: env_fast}
