@@ -12,7 +12,10 @@ function newThreadId() {
     : String(Date.now());
 }
 
-export default function ChatPanel() {
+/** A message sent from outside (the shared search box); `nonce` makes repeats distinct. */
+export type ChatSeed = { text: string; nonce: number };
+
+export default function ChatPanel({ seed }: { seed?: ChatSeed | null }) {
   const [threadId, setThreadId] = useState(newThreadId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -20,11 +23,22 @@ export default function ChatPanel() {
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, loading]);
+  useEffect(() => {
+    if (messages.length || loading) endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [messages, loading]);
 
-  const submit = async (e: FormEvent) => {
+  useEffect(() => {
+    if (seed) send(seed.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed?.nonce]);
+
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    const text = input.trim();
+    send(input);
+  };
+
+  const send = async (raw: string) => {
+    const text = raw.trim();
     if (!text || loading) return;
     setMessages((m) => [...m, { role: "user", content: text }]);
     setInput("");
@@ -64,7 +78,10 @@ export default function ChatPanel() {
 
       <div className="chat-log">
         {messages.length === 0 && (
-          <div className="empty">مثلاً بنویسید: «من دو سال سابقه React دارم، چه آگهی‌هایی در تهران برایم مناسب است؟»</div>
+          <div className="empty">
+            <div className="empty-icon">💬</div>
+            خواسته‌تان را در کادر بالا بنویسید؛ دستیار آگهی‌های مناسب را پیدا می‌کند و توضیح می‌دهد. سپس همین‌جا ادامه دهید.
+          </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`bubble bubble-${m.role}`}>
@@ -93,7 +110,7 @@ export default function ChatPanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           rows={2}
-          placeholder="پیام خود را بنویسید…"
+          placeholder="ادامه گفتگو… مثلاً «فقط دورکاری» یا «در اصفهان چی؟»"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) submit(e);
           }}

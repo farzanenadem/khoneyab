@@ -30,6 +30,9 @@ ranking:
 # (public list API, allowed by its robots.txt) in parallel; new ads join the index.
 live_crawl:
   enabled: true
+  sources: [jobvision, jobinja, irantalent]   # boards searched live (in parallel)
+  jobinja_delay: 1.0                 # min seconds between requests per board
+  irantalent_delay: 1.0
   store: ./data/live/jobs.jsonl      # new raw ads, merged by build_job_index_cli
   pages_per_keyword: 1               # 30 ads per page
   max_keywords: 4
@@ -38,3 +41,24 @@ live_crawl:
   enrich: true                       # fetch job pages for descriptions in the background
   enrich_delay: 1.5
   details_dir: ./data/jobvision/details
+
+# Job groups (OPTIONAL, disabled by default): two-level KMeans over the JobVision Jobposts
+# Dataset (Hugging Face, 2022-2024, CC BY-NC 4.0), stored in Qdrant. Background knowledge
+# only: it places a request into its closest job groups, which widen the live crawl and
+# re-rank CURRENT ads. Dataset rows are never returned as jobs.
+# Disabled because its effect on ranking accuracy is not measured yet; while disabled, search
+# and live crawl behave exactly as without it and /jobs/groups answers 503.
+# To try it: pip install ".[job-groups]"; docker compose --profile job-groups up -d qdrant;
+#           python -m agent.job_search.build_job_groups_cli; set enabled: true; restart the API.
+job_groups:
+  enabled: false
+  dir: ./data/groups                 # title index + build metadata
+  collection: job_groups
+  qdrant_url: http://localhost:6333  # overridden by the QDRANT_URL env var
+  top_k: 3                           # groups returned per request
+  ranking_weight: 0.10               # weight of the group component in hybrid ranking
+  live_keywords: 2                   # typical titles of the top group added to the live crawl
+  weights:                           # placement fit
+    semantic: 0.6
+    skill: 0.3
+    title: 0.1

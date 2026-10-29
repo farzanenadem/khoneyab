@@ -23,6 +23,14 @@ dependencies = [
     "uvicorn>=0.40.0",
 ]
 
+[project.optional-dependencies]
+# Only needed to build/use the optional job groups (configs/job_search.yaml -> job_groups).
+job-groups = [
+    "pyarrow>=18.0",
+    "qdrant-client>=1.12",
+    "scikit-learn>=1.5",
+]
+
 [[tool.uv.index]]
 name = "internal"
 url = "http://172.31.65.221:8081/repository/pypi/simple"

@@ -7,6 +7,10 @@ args:
     default: ./data/live/jobs.jsonl
     help: Ads collected by the live crawl during searches (merged if present)
 
+  --other-jobs:
+    default: ./data/live/other_sources.jsonl
+    help: Normalized ads from Jobinja / IranTalent collected by the live crawl
+
   --details-dir:
     default: ./data/jobvision/details
     help: Cached detail pages from enrich_jobs_cli (optional; missing jobs are indexed without description)

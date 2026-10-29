@@ -6,6 +6,8 @@ score = w_sem * semantic + w_lex * bm25 + w_concept * concept coverage + w_pref 
 * bm25       - lexical score over weighted fields, with bilingual synonym expansion
 * concepts   - share of the user's skill/role concepts literally present in the ad
 * preferences- soft match on location/remote, work type, seniority, experience, salary
+* group      - closeness of the ad to the job groups the request was placed in
+               (groups are learned from the JobVision dataset; see job_groups.py)
 
 Weights of components that do not apply to a query (e.g. no preferences stated)
 are redistributed. Explanations only quote text that exists in the ad.
@@ -21,6 +23,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from agent.job_search.index import Embedder, JobIndex, job_fields, passage_text
+from agent.job_search.job_groups import public_group
 from agent.job_search.matching import canon, phrase_regex
 from agent.job_search.query_parser import Concept, ParsedQuery, QueryParser
 from agent.utilities.persian_text import tokenize
@@ -49,6 +52,7 @@ MAX_EVIDENCE_CHARS = 220
 # benefits) counts half towards concept coverage.
 CORE_FIELDS = ("title", "categories", "skills", "software", "industry", "academic")
 DESCRIPTION_ONLY_CREDIT = 0.5
+GROUP_WEIGHT = 0.10
 
 
 @dataclass
@@ -66,6 +70,7 @@ class SearchFilters:
     min_salary: Optional[int] = None  # million tomans, compared with the ad's upper bound
     include_expired: bool = False
     posted_within_days: Optional[int] = None
+    sources: list[str] = field(default_factory=list)
 
     def accepts(self, job: dict, now: Optional[datetime] = None) -> bool:
         now = now or datetime.now(timezone.utc)
@@ -77,6 +82,8 @@ class SearchFilters:
             posted = parse_date(job.get("date_posted"))
             if posted is None or (now - posted).days > self.posted_within_days:
                 return False
+        if self.sources and job.get("source") not in self.sources:
+            return False
         if self.provinces and job.get("province") not in self.provinces:
             return False
         if self.cities and job.get("city") not in self.cities:
@@ -167,7 +174,17 @@ class JobSearchService:
         min_relative_score: float = MIN_RELATIVE_SCORE,
         recency_half_life_days: float = RECENCY_HALF_LIFE_DAYS,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        job_groups=None,
+        group_weight: float = GROUP_WEIGHT,
+        group_top_k: int = 3,
+        group_live_keywords: int = 2,
     ):
+        # Job groups only shape the search over current ads (query understanding,
+        # live-crawl keywords, ranking); dataset rows are never returned.
+        self.job_groups = job_groups if embedder is not None else None
+        self.group_weight = group_weight
+        self.group_top_k = group_top_k
+        self.group_live_keywords = group_live_keywords
         self.min_relative_score = min_relative_score
         self.recency_half_life_days = recency_half_life_days
         self.now = now
@@ -215,16 +232,22 @@ class JobSearchService:
                 self._canon_all[pos] = canon(" \n ".join(job_fields(job).values()))
                 self._canon_core[pos] = self._core_text(job)
 
-    def live_crawl(self, query: str, keywords: Optional[list[str]] = None) -> dict:
-        """Fetch fresh ads for the user's keywords and add them to the index."""
+    def live_crawl(self, query: str, keywords: Optional[list[str]] = None, extra_keywords: Optional[list[str]] = None) -> dict:
+        """Fetch fresh ads for the user's keywords and add them to the index.
+
+        `extra_keywords` (typical titles of the request's job groups) come after the
+        user's own keywords, so they fill the remaining slots of the crawl budget.
+        """
         if self.live_crawler is None:
             return {"enabled": False}
         pq = self.parser.parse(query)
         keywords = [k for k in (keywords or [c.label for c in pq.concepts]) if k and len(k) > 1]
-        if not keywords and pq.text:
+        if not keywords and pq.text and not extra_keywords:
             keywords = [pq.text[:60]]
+        keywords = list(dict.fromkeys(keywords + [k for k in extra_keywords or [] if k and len(k) > 1]))
+        by_label = {c.label: c.variants for c in pq.concepts}
         try:
-            new_jobs = self.live_crawler.fetch(keywords, set(self.index.id_to_pos))
+            new_jobs = self.live_crawler.fetch(keywords, set(self.index.id_to_pos), variants=by_label)
             added = self.add_jobs(new_jobs)
             return {"enabled": True, "keywords": keywords[: self.live_crawler.max_keywords], "new_jobs": added}
         except Exception as e:  # the site being down must not break search
@@ -232,10 +255,28 @@ class JobSearchService:
 
     # ---------- scoring components ----------
 
-    def _semantic(self, query: str) -> np.ndarray:
+    def _semantic(self, query: str, query_vector: Optional[np.ndarray] = None) -> np.ndarray:
         if self.embedder is None or len(self.index) == 0:
             return np.zeros(len(self.index), dtype=np.float32)
-        return self.index.embeddings @ self.embedder.embed_query(query)
+        return self.index.embeddings @ (query_vector if query_vector is not None else self.embedder.embed_query(query))
+
+    def place_groups(self, query: str, query_vector: Optional[np.ndarray] = None, top_k: Optional[int] = None) -> list[dict]:
+        """Closest job groups for a request (background knowledge, not job results)."""
+        if self.job_groups is None or not query.strip():
+            return []
+        if query_vector is None:
+            query_vector = self.embedder.embed_query(query)
+        try:
+            return self.job_groups.place(query_vector, query, top_k=top_k or self.group_top_k)
+        except Exception:  # Qdrant being down must not break search
+            return []
+
+    def _group_affinity(self, positions: np.ndarray, placements: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+        """Per ad: fit-weighted cosine to the placed groups, and the index of the closest group."""
+        centroids = np.vstack([p["centroid"] for p in placements])
+        sims = self.index.embeddings[positions] @ centroids.T
+        weighted = sims * np.array([p["fit"] for p in placements], dtype=np.float32)
+        return weighted.max(axis=1), sims.argmax(axis=1)
 
     def _keyword_overlap(self, query: str) -> np.ndarray:
         """Baseline: number of distinct query tokens present in the ad (no weighting/synonyms)."""
@@ -379,13 +420,23 @@ class JobSearchService:
         if sort not in SORTS:
             raise ValueError(f"sort must be one of {SORTS}")
         query = (query or "").strip()
-        live_info = self.live_crawl(query, keywords) if (live and query) else {"enabled": False}
+        # One query embedding serves the semantic score and the (optional) job-group placement;
+        # without groups, lexical-only methods do not embed at all.
+        wants_vector = self.job_groups is not None or method in ("hybrid", "semantic")
+        query_vector = self.embedder.embed_query(query) if (self.embedder is not None and query and wants_vector) else None
+        placements = self.place_groups(query, query_vector) if query else []
+        group_keywords = [k for k in (placements[0]["group"]["search_keywords"] if placements else [])][: self.group_live_keywords]
+        live_info = self.live_crawl(query, keywords, group_keywords) if (live and query) else {"enabled": False}
         with self._lock:
-            result = self._search(query, filters, top_k, method, sort)
+            result = self._search(query, filters, top_k, method, sort, query_vector, placements)
         result["live"] = live_info
+        # Background knowledge from the JobVision dataset (2022-2024), not job openings.
+        result["groups"] = [public_group(p) for p in placements]
         return result
 
-    def _search(self, query: str, filters: Optional[SearchFilters], top_k: int, method: str, sort: str = "relevance") -> dict:
+    def _search(self, query: str, filters: Optional[SearchFilters], top_k: int, method: str, sort: str = "relevance",
+                query_vector: Optional[np.ndarray] = None, placements: Optional[list[dict]] = None) -> dict:
+        placements = placements or []
         filters = filters or SearchFilters()
         pq = self.parser.parse(query)
         now = self.now()
@@ -407,7 +458,8 @@ class JobSearchService:
             return {"query": pq.to_dict(), "total_candidates": total, "method": method, "results": []}
 
         regexes = [concept_regex(c) for c in pq.concepts]
-        semantic_raw = self._semantic(query)[positions] if method in ("hybrid", "semantic") else None
+        semantic_raw = self._semantic(query, query_vector)[positions] if method in ("hybrid", "semantic") else None
+        nearest_group = None
         bm25_raw = None
         if method in ("hybrid", "bm25"):
             bm25_raw = self.index.bm25.scores(tokenize(query + " " + pq.expansion_text))[positions]
@@ -445,17 +497,27 @@ class JobSearchService:
             recency = np.array(
                 [recency_score(self.index.jobs[pos], now, self.recency_half_life_days) for pos in positions]
             )
+            if placements:
+                group_raw, nearest_group = self._group_affinity(positions, placements)
+                group, w["group"] = _minmax(group_raw), self.group_weight
+            else:
+                group_raw = group = np.zeros(total)
+                w["group"] = 0.0
             # Topical relevance (what the job is about) decides which ads qualify;
             # preferences and recency only reorder the qualifying ads.
-            topic_w = w["semantic"] + w["lexical"] + w["concept"]
-            topical = (w["semantic"] * sem + w["lexical"] * lex + w["concept"] * coverage) / (topic_w or 1.0)
+            topic_w = w["semantic"] + w["lexical"] + w["concept"] + w["group"]
+            topical = (
+                w["semantic"] * sem + w["lexical"] * lex + w["concept"] * coverage + w["group"] * group
+            ) / (topic_w or 1.0)
             denom = sum(w.values()) or 1.0
             final = (
                 w["semantic"] * sem + w["lexical"] * lex + w["concept"] * coverage
-                + w["preference"] * pref + w["recency"] * recency
+                + w["preference"] * pref + w["recency"] * recency + w["group"] * group
             ) / denom
             components = {"semantic": semantic_raw if self.embedder is not None else sem, "lexical": bm25_raw,
                           "concept": coverage, "preference": pref, "recency": recency}
+            if placements:
+                components["group"] = group_raw
 
         # Stable sort: ties keep dataset order.
         order = np.argsort(-final, kind="stable")
@@ -473,13 +535,17 @@ class JobSearchService:
         for rank, r in enumerate(order, 1):
             job = self.index.jobs[positions[r]]
             checks = self.preference_checks(job, pq)
-            results.append({
+            item = {
                 "rank": rank,
                 "score": round(float(final[r]), 4),
                 "score_breakdown": {k: round(float(v[r]), 4) for k, v in components.items()},
                 "job": job,
                 "explanation": self.explain(job, pq, regexes, checks),
-            })
+            }
+            if nearest_group is not None:
+                g = placements[int(nearest_group[r])]["group"]
+                item["group"] = {"id": g["id"], "name": g["name"], "category": g["category"]}
+            results.append(item)
         return {"query": pq.to_dict(), "total_candidates": total, "method": method, "sort": sort, "results": results}
 
     def filter_options(self) -> dict:
@@ -489,6 +555,7 @@ class JobSearchService:
             return [{"value": v, "count": c} for v, c in Counter(v for v in values if v).most_common()]
 
         return {
+            "sources": counted(j.get("source") for j in jobs),
             "provinces": counted(j.get("province") for j in jobs),
             "cities": counted(j.get("city") for j in jobs),
             "work_types": counted(j.get("work_type") for j in jobs),

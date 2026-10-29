@@ -1,5 +1,6 @@
 """Build the search service and embedder from configs/job_search.yaml."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -70,6 +71,7 @@ def create_search_service(config: Optional[dict] = None, embedder: Optional[Embe
         raise ValueError(
             f"Index was built with {index.meta['model']} but config uses {embedder.model_name}; rebuild the index."
         )
+    groups_conf = config.get("job_groups") or {}
     return JobSearchService(
         index,
         embedder,
@@ -78,7 +80,38 @@ def create_search_service(config: Optional[dict] = None, embedder: Optional[Embe
         live_crawler=create_live_crawler(config),
         min_relative_score=float(config.get("ranking", {}).get("min_relative_score", 0.6)),
         recency_half_life_days=float(config.get("ranking", {}).get("recency_half_life_days", 14)),
+        job_groups=create_job_groups(config, embedder),
+        group_weight=float(groups_conf.get("ranking_weight", 0.10)),
+        group_top_k=int(groups_conf.get("top_k", 3)),
+        group_live_keywords=int(groups_conf.get("live_keywords", 2)),
     )
+
+
+def create_qdrant(groups_conf: dict):
+    from agent.job_search.job_groups import create_qdrant_client
+
+    return create_qdrant_client(url=os.environ.get("QDRANT_URL") or groups_conf.get("qdrant_url", ""))
+
+
+def create_job_groups(config: dict, embedder: Optional[Embedder]):
+    """Job groups from Qdrant, or None (search works without them) when not built or reachable."""
+    conf = config.get("job_groups") or {}
+    if not conf.get("enabled") or embedder is None:
+        return None
+    try:
+        from agent.job_search.job_groups import JobGroups
+
+        groups = JobGroups.load(
+            create_qdrant(conf), resolve(conf["dir"]), conf.get("collection", "job_groups"), weights=conf.get("weights"),
+            synonym_groups=load_synonym_groups(resolve(config["synonyms"])),
+        )
+    except Exception as e:
+        print(f"Job groups unavailable: {e}")
+        return None
+    if groups.meta.get("model") != embedder.model_name:
+        print(f"Job groups were built with {groups.meta.get('model')}, search uses {embedder.model_name}; rebuild them.")
+        return None
+    return groups
 
 
 def create_live_crawler(config: dict):
@@ -92,9 +125,19 @@ def create_live_crawler(config: dict):
     enricher = None
     if conf.get("enrich", True):
         enricher = JobVisionEnricher(resolve(conf["details_dir"]), delay=float(conf.get("enrich_delay", 1.5)))
+    from agent.job_search.sources import IranTalentClient, JobinjaClient
+
+    sources = conf.get("sources") or ["jobvision", "jobinja", "irantalent"]
+    timeout = float(conf.get("timeout", 10))
     return LiveCrawler(
-        JobVisionListClient(delay=float(conf.get("delay", 0.3)), timeout=float(conf.get("timeout", 10))),
+        JobVisionListClient(delay=float(conf.get("delay", 0.3)), timeout=timeout) if "jobvision" in sources else None,
         resolve(conf["store"]),
+        jobinja=JobinjaClient(delay=float(conf.get("jobinja_delay", 1.0)), timeout=timeout) if "jobinja" in sources else None,
+        irantalent=(
+            IranTalentClient(slug_cache=resolve(conf["store"]).with_name("irantalent_slugs.json"),
+                             delay=float(conf.get("irantalent_delay", 1.0)), timeout=timeout)
+            if "irantalent" in sources else None
+        ),
         pages_per_keyword=int(conf.get("pages_per_keyword", 1)),
         max_keywords=int(conf.get("max_keywords", 4)),
         enricher=enricher,

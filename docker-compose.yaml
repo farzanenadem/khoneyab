@@ -19,8 +19,20 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - HF_HUB_OFFLINE=1
       - HF_MODULES_CACHE=/app/hf
+      - QDRANT_URL=http://qdrant:6333
     security_opt:
       - seccomp=unconfined
+
+  qdrant:
+    # Optional (job groups are disabled by default): docker compose --profile job-groups up -d qdrant
+    profiles: ["job-groups"]
+    image: qdrant/qdrant:v1.15.4
+    container_name: qdrant
+    restart: always
+    ports:
+      - 6333:6333
+    volumes:
+      - ./data/qdrant:/qdrant/storage   # job groups collection
 
   web:
     image: node:22-alpine

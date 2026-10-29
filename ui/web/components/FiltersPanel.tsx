@@ -1,6 +1,6 @@
 "use client";
 
-import { Filters, FilterOptions, Option } from "@/lib/api";
+import { Filters, FilterOptions, Option, SOURCE_LABELS } from "@/lib/api";
 
 type Props = {
   options: FilterOptions | null;
@@ -9,7 +9,7 @@ type Props = {
   onReset: () => void;
 };
 
-type ListKey = "provinces" | "work_types" | "seniority" | "categories";
+type ListKey = "provinces" | "work_types" | "seniority" | "categories" | "sources";
 
 function MultiSelect({
   label,
@@ -19,7 +19,7 @@ function MultiSelect({
   limit,
 }: {
   label: string;
-  options: Option[];
+  options: (Option & { label?: string })[];
   selected: string[];
   onChange: (v: string[]) => void;
   limit?: number;
@@ -39,7 +39,7 @@ function MultiSelect({
             onClick={() => toggle(o.value)}
             aria-pressed={selected.includes(o.value)}
           >
-            {o.value}
+            {o.label || o.value}
             <span className="chip-count">{o.count.toLocaleString("fa-IR")}</span>
           </button>
         ))}
@@ -130,6 +130,12 @@ export default function FiltersPanel({ options, filters, onChange, onReset }: Pr
         />
       </fieldset>
 
+      <MultiSelect
+        label="منبع آگهی"
+        options={(options.sources || []).map((o) => ({ ...o, label: SOURCE_LABELS[o.value] || o.value }))}
+        selected={filters.sources}
+        onChange={list("sources")}
+      />
       <MultiSelect label="استان" options={options.provinces} selected={filters.provinces} onChange={list("provinces")} limit={14} />
       <MultiSelect label="نوع همکاری" options={options.work_types} selected={filters.work_types} onChange={list("work_types")} />
       <MultiSelect label="سطح ارشدیت" options={options.seniority} selected={filters.seniority} onChange={list("seniority")} />

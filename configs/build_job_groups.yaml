@@ -1,0 +1,46 @@
+args:
+  --dataset:
+    default: ./data/raw/jobvision_jobposts.parquet
+    help: JobVision Jobposts Dataset (parquet); downloaded from Hugging Face if missing
+
+  --per-category:
+    default: 300
+    type: int
+    help: Rows sampled per main job category (newest first)
+
+  --since:
+    default: "2023-04"
+    help: Only rows activated in or after this month (YYYY-MM); empty = all
+
+  --k-min:
+    default: 2
+    type: int
+    help: Smallest k tried per category
+
+  --k-max:
+    default: 6
+    type: int
+    help: Largest k tried per category
+
+  --min-rows:
+    default: 40
+    type: int
+    help: Categories with fewer sampled rows stay a single group
+
+  --min-skill-share:
+    default: 0.10
+    type: float
+    help: A software skill is a key skill of a group if at least this share of its rows ask for it
+
+  --seed:
+    default: 42
+    type: int
+    help: Random seed (sampling and KMeans)
+
+  --config:
+    default: ./configs/job_search.yaml
+    help: Job search config (embedding model, job_groups section)
+
+  --device:
+    default: ""
+    help: Override embedding device for the build (cpu / cuda); empty = use config

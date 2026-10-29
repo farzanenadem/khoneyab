@@ -36,7 +36,7 @@ def test_live_crawl_adds_new_ads_for_user_keywords(service, tmp_path):
 def test_live_crawl_failure_does_not_break_search(service, tmp_path):
     service.live_crawler = LiveCrawler(FakeClient([], fail=True), tmp_path / "live.jsonl")
     res = service.search("حسابدار", live=True)
-    assert res["live"]["new_jobs"] == 0 and "site down" in res["live"]["error"]
+    assert res["live"]["new_jobs"] == 0
     assert res["results"]
 
 

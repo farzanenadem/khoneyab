@@ -20,7 +20,7 @@ def main() -> None:
     if args.device:
         config["embedding"]["args"]["device"] = args.device
 
-    jobs = load_jobs([resolve(args.jobs), resolve(args.live_jobs)], resolve(args.details_dir))
+    jobs = load_jobs([resolve(args.jobs), resolve(args.live_jobs), resolve(args.other_jobs)], resolve(args.details_dir))
     enriched = sum(1 for j in jobs if j["enriched"])
     logger.info(f"Loaded {len(jobs)} unique jobs ({enriched} with crawled description)")
 

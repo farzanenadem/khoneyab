@@ -31,3 +31,8 @@ def test_phrase_matching_handles_plurals_suffixes_and_boundaries():
 def test_html_to_text_keeps_list_items_on_separate_lines():
     html = '<div><p>وظایف:</p><ul><li>نامه&zwnj;نگاری</li><li>Python &amp; SQL</li></ul></div>'
     assert html_to_text(html).splitlines() == ["وظایف:", "• نامه‌نگاری", "• Python & SQL"]
+
+
+def test_ampersand_and_and_match_persian_va():
+    assert contains_phrase(canon("مهارت: HTML و CSS"), "HTML & CSS")
+    assert contains_phrase(canon("html and css"), "HTML & CSS")

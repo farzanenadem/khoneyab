@@ -14,7 +14,6 @@ from agent.graphs.nodes import (
     create_filter_docs_node,
     create_generate_with_context_node,
     create_job_retrieve_node,
-    create_rewrite_followup_node,
 )
 from agent.graphs.states import BaseAgentState
 
@@ -24,7 +23,6 @@ RETRIEVE = "retrieve"
 FALLBACK = "fallback"
 GENERATE_WITH_CONTEXT = "generate_with_context"
 FILTER_DOCS = "filter_docs"
-REWRITE_FOLLOWUP = "rewrite_followup"
 
 
 class AgentSate(BaseAgentState):
@@ -39,16 +37,13 @@ class AgentSate(BaseAgentState):
 class JobAgentGraph:
     """Conversational job assistant:
 
-    rewrite follow-up -> route -> retrieve (job index + live crawl) -> filter ads -> answer | fallback
+    route -> retrieve (job index + live crawl) -> filter ads -> answer | fallback
     """
 
     def __init__(self, config, job_search=None):
         checkpointer = InMemorySaver()
 
         coordinator_router_node = create_coordinator_router_node(config["coordinator_router"]["model"])
-
-        rewrite_conf = config["rewrite_followup"]
-        rewrite_node = create_rewrite_followup_node(rewrite_conf["model"])
 
         if job_search is None:
             from agent.job_search.service import create_search_service
@@ -70,17 +65,12 @@ class JobAgentGraph:
         use_filter = filter_docs_conf.get("enable", True)
 
         builder = StateGraph(AgentSate)
-        builder.add_node(REWRITE_FOLLOWUP, rewrite_node)
         builder.add_node(COORDINATOR_ROUTER, coordinator_router_node)
         builder.add_node(RETRIEVE, retrieve_node)
         builder.add_node(FALLBACK, fallback_node)
         builder.add_node(GENERATE_WITH_CONTEXT, generate_with_context_node)
 
-        if rewrite_conf["enable"]:
-            builder.set_entry_point(REWRITE_FOLLOWUP)
-            builder.add_edge(REWRITE_FOLLOWUP, COORDINATOR_ROUTER)
-        else:
-            builder.set_entry_point(COORDINATOR_ROUTER)
+        builder.set_entry_point(COORDINATOR_ROUTER)
 
         builder.add_conditional_edges(
             COORDINATOR_ROUTER,

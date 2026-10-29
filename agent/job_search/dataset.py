@@ -26,6 +26,22 @@ def _en(item) -> str:
     return (item.get("titleEn") or "").strip()
 
 
+def empty_job(**fields) -> dict:
+    """A job with every schema field present (other sources fill what they have)."""
+    job = {
+        "id": "", "source": "", "url": "", "title": "", "company": "", "company_en": "",
+        "company_url": "", "company_logo": "", "province": "", "province_en": "", "city": "",
+        "city_en": "", "region": "", "categories": [], "categories_en": [], "industry": "",
+        "work_type": "", "seniority": "", "gender": "", "benefits": [], "labels": [],
+        "is_remote": False, "is_internship": False, "is_urgent": False,
+        "required_experience_years": None, "salary_text": "", "salary_min": None,
+        "salary_max": None, "date_posted": "", "expires": "", "description": "", "skills": [],
+        "software": [], "languages": [], "academic": [], "work_days": "", "enriched": False,
+    }
+    job.update(fields)
+    return job
+
+
 def read_jsonl(path: Path) -> list[dict]:
     rows = []
     with open(path, encoding="utf-8") as f:
@@ -151,6 +167,9 @@ def load_jobs(listing_paths, details_dir: Optional[Path] = None) -> list[dict]:
     raws = [r for p in listing_paths if Path(p).exists() for r in read_jsonl(Path(p))]
     jobs = []
     for raw in raws:
+        if raw.get("source") and raw.get("url") and "properties" not in raw:
+            jobs.append(empty_job(**raw))  # already normalized (Jobinja, IranTalent)
+            continue
         detail = None
         if details_dir is not None and raw.get("id") is not None:
             p = details_dir / f"{int(raw['id'])}.json"

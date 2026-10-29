@@ -6,11 +6,14 @@ from functools import lru_cache
 from agent.utilities.persian_text import normalize_for_search
 
 PLURAL_TOKENS_RE = re.compile(r"(?<!\S)(?:ها|های|هایی)(?!\S)")
+AND_RE = re.compile(r"\s*&\s*|(?<!\S)and(?!\S)", re.I)
 PERSIAN_SUFFIXES = "(?:ی|ها|های|هایی|ان|تر)?"
 
 
 def canon(text: str) -> str:
     """Search normalization plus removal of detached plural suffixes (مدل‌های -> مدل)."""
+    # Before normalization, which drops "&" as punctuation.
+    text = AND_RE.sub(" و ", text or "")  # "HTML & CSS" == "HTML and CSS" == "HTML و CSS"
     text = normalize_for_search(text)
     text = PLURAL_TOKENS_RE.sub(" ", text)
     return re.sub(r"\s+", " ", text).strip()

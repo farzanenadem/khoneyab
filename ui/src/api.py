@@ -7,7 +7,7 @@ from typing import Any, Dict, Literal, Optional
 
 import uvicorn
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from yaml.loader import SafeLoader
@@ -16,6 +16,7 @@ from agent.job_search.search import SearchFilters
 from agent.utilities.persian_text import normalize_persian
 
 app_graph = None
+resume_llm = None
 job_search = None
 job_search_error: Optional[str] = None
 
@@ -73,6 +74,16 @@ async def lifespan(app: FastAPI):
             print(f"Job search unavailable: {e}")
             traceback.print_exc()
 
+    # LLM for resume profile extraction (optional; rules are used without it).
+    global resume_llm
+    if api_args.get("resume_llm_enabled", True):
+        try:
+            from agent.graphs.models import create_llm
+
+            resume_llm = create_llm("env_fast", "env")
+        except Exception as e:
+            print(f"Resume LLM unavailable, using rule-based extraction: {e}")
+
     # Conversational agent (/chat); LLM settings come from the graph config and .env.
     if api_args.get("chat_enabled", False):
         try:
@@ -128,6 +139,7 @@ class JobSearchFilters(BaseModel):
     min_salary: Optional[int] = Field(default=None, ge=0)
     include_expired: bool = False
     posted_within_days: Optional[int] = Field(default=None, ge=0, le=365)
+    sources: list[str] = []
 
 
 class JobSearchRequest(BaseModel):
@@ -203,9 +215,77 @@ def search_jobs(request: JobSearchRequest):
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 
+@app.post("/resume/search")
+def search_by_resume(
+    file: UploadFile = File(...),
+    top_k: int = Form(10),
+    live: bool = Form(True),
+):
+    """Upload a PDF/DOCX/TXT resume; it is processed in memory and never stored or logged."""
+    from agent.job_search.resume import ResumeError, extract_text, search_with_resume
+
+    service = _require_job_search()
+    if not 1 <= top_k <= 50:
+        raise HTTPException(status_code=422, detail="top_k must be between 1 and 50")
+    try:
+        text = extract_text(file.filename or "", file.file.read())
+        return search_with_resume(service, text, llm=resume_llm, top_k=top_k, live=live)
+    except ResumeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Do not include resume content in logs or errors.
+        print(f"Resume search failed: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Resume processing error")
+
+
+class RoadmapRequest(BaseModel):
+    known_skills: list[str] = Field(default_factory=list, max_length=60)
+
+
+@app.post("/jobs/{job_id}/roadmap")
+def job_roadmap(job_id: str, request: RoadmapRequest):
+    from agent.job_search.roadmap import build_roadmap
+
+    job = _require_job_search().get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return build_roadmap(job, request.known_skills, llm=resume_llm)
+
+
 @app.get("/jobs/filters")
 def job_filters():
     return _require_job_search().filter_options()
+
+
+class JobGroupsRequest(BaseModel):
+    text: str = Field(min_length=2, max_length=4000)  # the user's description and/or resume text
+    top_k: int = Field(default=3, ge=1, le=10)
+
+
+def _require_job_groups():
+    service = _require_job_search()
+    if service.job_groups is None:
+        raise HTTPException(status_code=503, detail="Job groups not available: build them with build_job_groups_cli")
+    return service
+
+
+@app.post("/jobs/groups")
+def job_groups(request: JobGroupsRequest):
+    """Closest job groups for a request. Groups are background knowledge learned from
+    the JobVision dataset (2022-2024); job recommendations come only from /jobs/search."""
+    service = _require_job_groups()
+    from agent.job_search.job_groups import public_group
+
+    placements = service.place_groups(normalize_persian(request.text), top_k=request.top_k)
+    return {"groups": [public_group(p) for p in placements], "meta": service.job_groups.meta}
+
+
+@app.get("/jobs/groups/{group_id}")
+def job_group(group_id: str):
+    group = _require_job_groups().job_groups.get(group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Job group not found")
+    return group
 
 
 @app.get("/jobs/{job_id}")

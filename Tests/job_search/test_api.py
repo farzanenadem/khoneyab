@@ -9,7 +9,8 @@ from .test_query_parser import EXAMPLE
 @pytest.fixture(autouse=True)
 def no_llm(monkeypatch):
     # Keep the tests offline: the /chat agent needs an LLM key.
-    monkeypatch.setattr(api, "load_api_config", lambda: {"chat_enabled": False})
+    monkeypatch.setattr(api, "load_api_config", lambda: {"chat_enabled": False, "resume_llm_enabled": False})
+    monkeypatch.setattr(api, "resume_llm", None)
 
 
 @pytest.fixture

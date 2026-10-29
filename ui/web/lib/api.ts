@@ -57,6 +57,7 @@ export type SearchResult = {
     missing: string[];
     preferences: PreferenceCheck[];
   };
+  resume_match?: { matched_skills: string[]; missing_skills: string[] };
 };
 
 export type ParsedQuery = {
@@ -93,6 +94,13 @@ export type Filters = {
   max_experience_years: number | null;
   min_salary: number | null;
   posted_within_days: number | null;
+  sources: string[];
+};
+
+export const SOURCE_LABELS: Record<string, string> = {
+  "jobvision.ir": "جاب‌ویژن",
+  "jobinja.ir": "جابینجا",
+  "irantalent.com": "ایران‌تلنت",
 };
 
 export const EMPTY_FILTERS: Filters = {
@@ -108,11 +116,13 @@ export const EMPTY_FILTERS: Filters = {
   max_experience_years: null,
   min_salary: null,
   posted_within_days: null,
+  sources: [],
 };
 
 export type Option = { value: string; count: number };
 
 export type FilterOptions = {
+  sources: Option[];
   provinces: Option[];
   cities: Option[];
   work_types: Option[];
@@ -174,5 +184,52 @@ export function sendChat(message: string, threadId: string) {
   return request<ChatResponse>("/chat", {
     method: "POST",
     body: JSON.stringify({ message, thread_id: threadId }),
+  });
+}
+
+export type ResumeProfile = {
+  skills: string[];
+  experience_years: number | null;
+  education: string[];
+  roles: string[];
+  location: string | null;
+  source: "llm" | "rules";
+};
+
+export type ResumeSearchResponse = SearchResponse & { profile: ResumeProfile; generated_query: string };
+
+export async function searchByResume(file: File, topK: number): Promise<ResumeSearchResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("top_k", String(topK));
+  const res = await fetch("/api/resume/search", { method: "POST", body: form });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export type RoadmapStage = { skill: string; why: string; steps: string[]; weeks: number | null };
+
+export type Roadmap = {
+  job_id: string;
+  title: string;
+  summary: string;
+  have_skills: string[];
+  stages: RoadmapStage[];
+  requirements_listed: boolean;
+  source: "llm" | "rules";
+};
+
+export function getRoadmap(jobId: string, knownSkills: string[]) {
+  return request<Roadmap>(`/jobs/${encodeURIComponent(jobId)}/roadmap`, {
+    method: "POST",
+    body: JSON.stringify({ known_skills: knownSkills }),
   });
 }

@@ -9,7 +9,9 @@ Descriptive Persian job search over real JobVision ads: hybrid retrieval + groun
 ## Layout
 - `agent/job_search/` — core: `dataset.py` (normalize/dedupe), `crawler.py` (job pages, robots-aware),
   `jobvision_crawler.py` (list API client + CLI), `live.py` (per-request live crawl), `query_parser.py`,
-  `index.py` (numpy vectors + BM25), `search.py` (ranking, filters, explanations), `service.py` (factory).
+  `index.py` (numpy vectors + BM25), `search.py` (ranking, filters, explanations), `service.py` (factory),
+  `job_groups.py` (optional, off by default: JobVision dataset → two-level KMeans job groups in Qdrant;
+  placement of a request), `build_job_groups_cli.py`.
 - `agent/graphs/job_agent_graph.py` + `agent/graphs/nodes/` — chat agent; prompts in `agent/agent_jobs/prompts/`.
 - `agent/graphs/models/__init__.py` — `create_llm`: `url: env` → OpenAI-compatible gateway from `.env`, else Ollama.
 - `agent/utilities/persian_text.py` — Persian normalization/tokenization (use it; don't re-implement).
@@ -35,4 +37,10 @@ keep `agent/__init__.py` and `ui/__init__.py`.
   `jobvision.ir` are allowed), keep rate limits and the identifying User-Agent, store only needed fields.
 - Search path stays LLM-free and deterministic; LLM use belongs to `/chat`.
 - Tests use `FakeEmbeddings` and fake HTTP sessions — no network or model downloads in tests.
+  Qdrant tests use `QdrantClient(":memory:")`.
+- **Job groups are optional and disabled by default** (`job_groups.enabled`; its accuracy effect is not
+  measured — enable only after comparing with `evaluate_cli`). They are background knowledge: the HF dataset
+  (`data/raw/`, not committed, CC BY-NC 4.0) only
+  places requests into groups and shapes search over current ads; never return dataset rows as jobs.
+  Never read its gender, age, military-service or disability columns (`EXCLUDED_COLUMNS`).
 - Match existing style: config-driven factories, small modules, Persian user-facing text.

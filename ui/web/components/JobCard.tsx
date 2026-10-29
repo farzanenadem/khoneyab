@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SearchResult } from "@/lib/api";
+import { getRoadmap, Roadmap, SOURCE_LABELS, SearchResult } from "@/lib/api";
 
 const BREAKDOWN_LABELS: Record<string, string> = {
   semantic: "شباهت معنایی",
@@ -45,6 +45,19 @@ function Highlight({ text, term }: { text: string; term: string }) {
 export default function JobCard({ result }: { result: SearchResult }) {
   const { job, explanation, score, score_breakdown, rank } = result;
   const [open, setOpen] = useState(false);
+  const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
+  const [roadmapState, setRoadmapState] = useState<"idle" | "loading" | "error">("idle");
+
+  async function loadRoadmap() {
+    if (roadmap || roadmapState === "loading") return;
+    setRoadmapState("loading");
+    try {
+      setRoadmap(await getRoadmap(job.id, result.resume_match?.matched_skills ?? []));
+      setRoadmapState("idle");
+    } catch {
+      setRoadmapState("error");
+    }
+  }
   const place = [job.city, job.province].filter(Boolean).join("، ");
   const skills = [...job.skills, ...job.software.map((s) => (s.level ? `${s.name} (${s.level})` : s.name))];
 
@@ -75,6 +88,7 @@ export default function JobCard({ result }: { result: SearchResult }) {
       </header>
 
       <div className="meta">
+        <span className="tag tag-source">{SOURCE_LABELS[job.source] || job.source}</span>
         {place && <span className="tag">📍 {place}</span>}
         {job.is_remote && <span className="tag tag-green">امکان دورکاری</span>}
         {job.is_internship && <span className="tag tag-green">کارآموزی</span>}
@@ -116,6 +130,26 @@ export default function JobCard({ result }: { result: SearchResult }) {
             ))}
           </ul>
         )}
+        {result.resume_match && (result.resume_match.matched_skills.length > 0 || result.resume_match.missing_skills.length > 0) && (
+          <div className="skill-gap">
+            {result.resume_match.matched_skills.length > 0 && (
+              <p>
+                <b>مهارت‌های منطبق با رزومه:</b>{" "}
+                {result.resume_match.matched_skills.map((s) => (
+                  <span key={s} className="tag tag-green">{s}</span>
+                ))}
+              </p>
+            )}
+            {result.resume_match.missing_skills.length > 0 && (
+              <p>
+                <b>مهارت‌های موردنیاز آگهی که در رزومه نیست:</b>{" "}
+                {result.resume_match.missing_skills.map((s) => (
+                  <span key={s} className="tag tag-red">{s}</span>
+                ))}
+              </p>
+            )}
+          </div>
+        )}
         {explanation.missing.length > 0 && (
           <p className="missing">
             در آگهی ذکر نشده: {explanation.missing.map((m) => `«${m}»`).join("، ")}
@@ -125,12 +159,55 @@ export default function JobCard({ result }: { result: SearchResult }) {
 
       <footer className="card-foot">
         <a className="btn" href={job.url} target="_blank" rel="noopener noreferrer">
-          مشاهده آگهی در جاب‌ویژن ↗
+          مشاهده آگهی در {SOURCE_LABELS[job.source] || job.source} ↗
         </a>
         <button type="button" className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? "بستن جزئیات" : "جزئیات آگهی"}
         </button>
+        <button type="button" className="link-btn" onClick={loadRoadmap} disabled={roadmapState === "loading"}>
+          {roadmapState === "loading" ? "در حال ساخت نقشه راه…" : "🗺️ نقشه راه رسیدن به این شغل"}
+        </button>
       </footer>
+
+      {roadmapState === "error" && (
+        <p className="missing">ساخت نقشه راه ناموفق بود؛ دوباره تلاش کنید.</p>
+      )}
+      {roadmap && (
+        <section className="roadmap">
+          <h4>نقشه راه: {roadmap.title}</h4>
+          <p>{roadmap.summary}</p>
+          {roadmap.have_skills.length > 0 && (
+            <p className="skill-gap">
+              <b>مهارت‌های دارید:</b>{" "}
+              {roadmap.have_skills.map((x) => (
+                <span key={x} className="tag tag-green">{x}</span>
+              ))}
+            </p>
+          )}
+          {!roadmap.requirements_listed && (
+            <p className="muted">در این آگهی مهارت مشخصی ذکر نشده؛ برای جزئیات به متن آگهی مراجعه کنید.</p>
+          )}
+          <ol className="stages">
+            {roadmap.stages.map((st) => (
+              <li key={st.skill}>
+                <div className="stage-head">
+                  <span className="tag tag-red">{st.skill}</span>
+                  {st.weeks !== null && <span className="tag tag-muted">≈ {st.weeks.toLocaleString("fa-IR")} هفته</span>}
+                </div>
+                <p className="muted">{st.why}</p>
+                <ul>
+                  {st.steps.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+          <p className="muted">
+            {roadmap.source === "llm" ? "مراحل یادگیری را مدل زبانی پیشنهاد داده؛ فهرست مهارت‌ها فقط از متن آگهی است." : "مهارت‌ها از متن آگهی گرفته شده‌اند."}
+          </p>
+        </section>
+      )}
 
       {open && (
         <div className="details">

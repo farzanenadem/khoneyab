@@ -1,13 +1,14 @@
 PY ?= python3
 NPM ?= npm
 
-.PHONY: help crawl enrich_jobs build_job_index jobs_index api web web_install test eval_jobs clean
+.PHONY: help crawl enrich_jobs build_job_index build_job_groups jobs_index api web web_install test eval_jobs clean
 
 help:
 	@echo "Targets:"
 	@echo "  make crawl ARGS='-k python -p 2'  (jobvision list API crawler -> jobs.jsonl/csv)"
 	@echo "  make enrich_jobs                  (job pages -> descriptions, cached)"
 	@echo "  make build_job_index              (normalize + embed + save index)"
+	@echo "  make build_job_groups             (JobVision dataset -> KMeans job groups -> Qdrant)"
 	@echo "  make api                          (FastAPI backend on :8000)"
 	@echo "  make web_install / web            (Next.js UI on :3000)"
 	@echo "  make test                         (unit tests)"
@@ -21,6 +22,9 @@ enrich_jobs:
 
 build_job_index:
 	$(PY) -m agent.job_search.build_job_index_cli $(ARGS)
+
+build_job_groups:
+	$(PY) -m agent.job_search.build_job_groups_cli $(ARGS)
 
 jobs_index: enrich_jobs build_job_index
 
