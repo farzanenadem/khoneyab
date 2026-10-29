@@ -1,6 +1,7 @@
 import os
 
 from agent._core.settings import ROOT_DIR
+from agent.utilities.usage import USAGE_CALLBACK
 
 ENV_MARKER = "env"
 ENV_FAST_MARKER = "env_fast"  # LLM_FAST_MODEL: cheaper model for routing/filtering steps
@@ -40,6 +41,7 @@ def create_llm(model, base_url, temperature=0.0, format=None):
             temperature=temperature,
             timeout=float(os.environ.get("LLM_TIMEOUT", "150")),
             max_retries=1,
+            callbacks=[USAGE_CALLBACK],
             **kwargs,
         )
 
@@ -49,7 +51,8 @@ def create_llm(model, base_url, temperature=0.0, format=None):
         model=model,
         base_url=base_url,
         temperature=temperature,
-        format=format
+        format=format,
+        callbacks=[USAGE_CALLBACK],
     )
 
     return llm

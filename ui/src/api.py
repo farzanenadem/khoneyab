@@ -14,6 +14,7 @@ from yaml.loader import SafeLoader
 
 from agent.job_search.search import SearchFilters
 from agent.utilities.persian_text import normalize_persian
+from agent.utilities.usage import USAGE, track_feature
 
 app_graph = None
 resume_llm = None
@@ -189,6 +190,18 @@ async def health_check():
     }
 
 
+@app.get("/usage")
+def llm_usage():
+    """LLM observability: token/latency/call counters since the API started (no prompts stored)."""
+    return USAGE.summary()
+
+
+@app.post("/usage/reset")
+def reset_llm_usage():
+    USAGE.reset()
+    return {"status": "reset"}
+
+
 def _require_job_search():
     if job_search is None:
         raise HTTPException(
@@ -229,7 +242,8 @@ def search_by_resume(
         raise HTTPException(status_code=422, detail="top_k must be between 1 and 50")
     try:
         text = extract_text(file.filename or "", file.file.read())
-        return search_with_resume(service, text, llm=resume_llm, top_k=top_k, live=live)
+        with track_feature("resume"):
+            return search_with_resume(service, text, llm=resume_llm, top_k=top_k, live=live)
     except ResumeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -249,7 +263,8 @@ def job_roadmap(job_id: str, request: RoadmapRequest):
     job = _require_job_search().get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return build_roadmap(job, request.known_skills, llm=resume_llm)
+    with track_feature("roadmap"):
+        return build_roadmap(job, request.known_skills, llm=resume_llm)
 
 
 @app.get("/jobs/filters")
@@ -327,7 +342,8 @@ async def chat(request: ChatRequest):
     #     )
 
     try:
-        result = _process(normalize_persian(request.message), thread_id)
+        with track_feature("chat"):
+            result = _process(normalize_persian(request.message), thread_id)
 
         return ChatResponse(
             response=result["content"],

@@ -7,6 +7,7 @@ import FiltersPanel from "@/components/FiltersPanel";
 import JobCard from "@/components/JobCard";
 import QueryUnderstanding from "@/components/QueryUnderstanding";
 import ResumePanel from "@/components/ResumePanel";
+import UsagePanel from "@/components/UsagePanel";
 import {
   EMPTY_FILTERS,
   FilterOptions,
@@ -37,13 +38,14 @@ const METHOD_LABELS: Record<Method, string> = {
   keyword: "پایه: هم‌پوشانی واژه‌ها",
 };
 
-type Tab = "search" | "resume" | "roadmap";
+type Tab = "search" | "resume" | "roadmap" | "usage";
 type Mode = "list" | "chat";
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: "search", icon: "🔍", label: "جستجو و دستیار" },
   { id: "resume", icon: "📄", label: "جستجو با رزومه" },
   { id: "roadmap", icon: "🗺️", label: "نقشه مسیر شغلی" },
+  { id: "usage", icon: "📊", label: "مصرف توکن" },
 ];
 
 const MODES: { id: Mode; icon: string; label: string }[] = [
@@ -263,6 +265,12 @@ export default function Home() {
         )}
         {status && <div className="alert">{status}</div>}
       </header>
+
+      {tab === "usage" && (
+        <main className="career-main" role="tabpanel" id="panel-usage" aria-labelledby="tab-usage">
+          <UsagePanel />
+        </main>
+      )}
 
       {tab === "roadmap" && (
         <main className="career-main" role="tabpanel" id="panel-roadmap" aria-labelledby="tab-roadmap">

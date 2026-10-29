@@ -227,6 +227,42 @@ export type Roadmap = {
   source: "llm" | "rules";
 };
 
+export type UsageRow = {
+  name: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  seconds: number;
+  cost_usd: number | null;
+};
+
+export type UsageCall = {
+  time: number;
+  feature: string;
+  model: string;
+  step: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  seconds: number;
+};
+
+export type UsageSummary = {
+  since: number;
+  total: Omit<UsageRow, "name"> & { avg_tokens_per_call: number; avg_seconds_per_call: number };
+  errors: number;
+  calls_without_usage: number;
+  pricing_configured: boolean;
+  by_feature: UsageRow[];
+  by_model: UsageRow[];
+  by_step: UsageRow[];
+  recent: UsageCall[];
+};
+
+export const getUsage = () => request<UsageSummary>("/usage");
+export const resetUsage = () => request<{ status: string }>("/usage/reset", { method: "POST" });
+
 export function getRoadmap(jobId: string, knownSkills: string[]) {
   return request<Roadmap>(`/jobs/${encodeURIComponent(jobId)}/roadmap`, {
     method: "POST",
