@@ -16,3 +16,4 @@ node_modules
 rfp/
 .env
 *.log
+README.md
