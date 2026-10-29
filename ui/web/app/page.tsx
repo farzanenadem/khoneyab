@@ -254,22 +254,6 @@ export default function Home() {
       </main>
       )}
 
-      <footer className="site-foot muted small">
-        داده‌ها: آگهی‌های عمومی{" "}
-        <a href="https://jobvision.ir" target="_blank" rel="noopener noreferrer">
-          جاب‌ویژن
-        </a>
-        ،{" "}
-        <a href="https://jobinja.ir" target="_blank" rel="noopener noreferrer">
-          جابینجا
-        </a>{" "}
-        و{" "}
-        <a href="https://irantalent.com" target="_blank" rel="noopener noreferrer">
-          ایران‌تلنت
-        </a>
-        . همه اطلاعات نمایش‌داده‌شده عیناً از آگهی‌ها گرفته شده‌اند؛ برای جزئیات و ارسال رزومه به آگهی اصلی مراجعه
-        کنید.
-      </footer>
     </div>
   );
 }

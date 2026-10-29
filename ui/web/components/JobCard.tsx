@@ -59,6 +59,9 @@ export default function JobCard({ result }: { result: SearchResult }) {
     }
   }
   const place = [job.city, job.province].filter(Boolean).join("، ");
+  const resumeMode = Boolean(result.resume_match);
+  const matchedSkills = result.resume_match?.matched_skills ?? [];
+  const missingSkills = result.resume_match?.missing_skills ?? [];
   const skills = [...job.skills, ...job.software.map((s) => (s.level ? `${s.name} (${s.level})` : s.name))];
 
   return (
@@ -105,6 +108,29 @@ export default function JobCard({ result }: { result: SearchResult }) {
         )}
       </div>
 
+      {resumeMode ? (
+        <div className="fit">
+          {matchedSkills.length > 0 && (
+            <div className="fit-row">
+              <span className="fit-label">✔ دارید</span>
+              {matchedSkills.slice(0, 6).map((s) => (
+                <span key={s} className="tag tag-green">{s}</span>
+              ))}
+              {matchedSkills.length > 6 && <span className="tag tag-muted">+{(matchedSkills.length - 6).toLocaleString("fa-IR")}</span>}
+            </div>
+          )}
+          {missingSkills.length > 0 && (
+            <div className="fit-row">
+              <span className="fit-label">✚ لازم است</span>
+              {missingSkills.slice(0, 4).map((s) => (
+                <span key={s} className="tag tag-red">{s}</span>
+              ))}
+              {missingSkills.length > 4 && <span className="tag tag-muted">+{(missingSkills.length - 4).toLocaleString("fa-IR")}</span>}
+            </div>
+          )}
+          {matchedSkills.length === 0 && missingSkills.length === 0 && <p className="muted small">{explanation.summary}</p>}
+        </div>
+      ) : (
       <section className="why">
         <h4>چرا این آگهی؟</h4>
         <p>{explanation.summary}</p>
@@ -130,32 +156,13 @@ export default function JobCard({ result }: { result: SearchResult }) {
             ))}
           </ul>
         )}
-        {result.resume_match && (result.resume_match.matched_skills.length > 0 || result.resume_match.missing_skills.length > 0) && (
-          <div className="skill-gap">
-            {result.resume_match.matched_skills.length > 0 && (
-              <p>
-                <b>مهارت‌های منطبق با رزومه:</b>{" "}
-                {result.resume_match.matched_skills.map((s) => (
-                  <span key={s} className="tag tag-green">{s}</span>
-                ))}
-              </p>
-            )}
-            {result.resume_match.missing_skills.length > 0 && (
-              <p>
-                <b>مهارت‌های موردنیاز آگهی که در رزومه نیست:</b>{" "}
-                {result.resume_match.missing_skills.map((s) => (
-                  <span key={s} className="tag tag-red">{s}</span>
-                ))}
-              </p>
-            )}
-          </div>
-        )}
         {explanation.missing.length > 0 && (
           <p className="missing">
             در آگهی ذکر نشده: {explanation.missing.map((m) => `«${m}»`).join("، ")}
           </p>
         )}
       </section>
+      )}
 
       <footer className="card-foot">
         <a className="btn" href={job.url} target="_blank" rel="noopener noreferrer">

@@ -383,6 +383,29 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
   padding: 16px;
   box-shadow: var(--shadow-lg);
 }
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 16px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 16px;
+  background: var(--bg-soft);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover, .dropzone-on { border-color: var(--primary, #4f46e5); background: var(--surface); }
+.dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dz-icon { font-size: 1.8rem; }
+.dz-title { font-weight: 600; overflow-wrap: anywhere; }
+
+.fit { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.fit-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fit-label { font-size: 0.85rem; font-weight: 600; min-width: 72px; }
+
 .chat-main { margin-top: 28px; }
 .chat-main[hidden] { display: none; }
 
