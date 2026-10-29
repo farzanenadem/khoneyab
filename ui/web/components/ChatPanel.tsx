@@ -120,6 +120,9 @@ export default function ChatPanel({ seed }: { seed?: ChatSeed | null }) {
           ارسال
         </button>
       </form>
+      <p className="kbd-hint muted small">
+        <kbd>Enter</kbd> ارسال · <kbd>Shift</kbd>+<kbd>Enter</kbd> خط جدید
+      </p>
     </div>
   );
 }

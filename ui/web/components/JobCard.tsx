@@ -91,19 +91,14 @@ export default function JobCard({ result }: { result: SearchResult }) {
       </header>
 
       <div className="meta">
-        <span className="tag tag-source">{SOURCE_LABELS[job.source] || job.source}</span>
-        {place && <span className="tag">📍 {place}</span>}
-        {job.is_remote && <span className="tag tag-green">امکان دورکاری</span>}
+        {place && <span className="tag"><span aria-hidden="true">📍</span> {place}</span>}
+        {job.is_remote && <span className="tag tag-green">دورکاری</span>}
         {job.is_internship && <span className="tag tag-green">کارآموزی</span>}
         {job.work_type && <span className="tag">{job.work_type}</span>}
-        {job.seniority && <span className="tag">{job.seniority}</span>}
-        {job.required_experience_years !== null && (
-          <span className="tag">سابقه: {job.required_experience_years.toLocaleString("fa-IR")} سال</span>
-        )}
-        <span className="tag">{job.salary_text ? `💰 ${job.salary_text}` : "حقوق اعلام نشده"}</span>
+        {job.salary_text && <span className="tag"><span aria-hidden="true">💰</span> {job.salary_text}</span>}
         {job.date_posted && (
           <span className="tag tag-muted" title={faDate(job.date_posted)}>
-            🕒 {ago(job.date_posted)}
+            {ago(job.date_posted)} · {SOURCE_LABELS[job.source] || job.source}
           </span>
         )}
       </div>
@@ -166,14 +161,29 @@ export default function JobCard({ result }: { result: SearchResult }) {
 
       <footer className="card-foot">
         <a className="btn" href={job.url} target="_blank" rel="noopener noreferrer">
-          مشاهده آگهی در {SOURCE_LABELS[job.source] || job.source} ↗
+          مشاهده آگهی <span aria-hidden="true">↗</span>
         </a>
         <button type="button" className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? "بستن جزئیات" : "جزئیات آگهی"}
         </button>
-        <button type="button" className="link-btn" onClick={loadRoadmap} disabled={roadmapState === "loading"}>
-          {roadmapState === "loading" ? "در حال ساخت نقشه راه…" : "🗺️ نقشه راه رسیدن به این شغل"}
-        </button>
+        {roadmapState === "loading" ? (
+          <span className="muted small">در حال ساخت نقشه راه…</span>
+        ) : (
+          <details className="more-menu">
+            <summary aria-label="اقدامات بیشتر">⋯</summary>
+            <div className="more-body">
+              <button
+                type="button"
+                onClick={(e) => {
+                  (e.currentTarget.closest("details") as HTMLDetailsElement).open = false;
+                  loadRoadmap();
+                }}
+              >
+                نقشه راه رسیدن به این شغل
+              </button>
+            </div>
+          </details>
+        )}
       </footer>
 
       {roadmapState === "error" && (
@@ -218,6 +228,15 @@ export default function JobCard({ result }: { result: SearchResult }) {
 
       {open && (
         <div className="details">
+          {(job.seniority || job.required_experience_years !== null) && (
+            <p>
+              <b>سطح و سابقه:</b>{" "}
+              {[job.seniority, job.required_experience_years !== null ? `${job.required_experience_years.toLocaleString("fa-IR")} سال سابقه` : null]
+                .filter(Boolean)
+                .join("، ")}
+            </p>
+          )}
+          {!job.salary_text && <p><b>حقوق:</b> اعلام نشده</p>}
           {job.categories.length > 0 && (
             <p>
               <b>دسته‌بندی:</b> {job.categories.join("، ")}

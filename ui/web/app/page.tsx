@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
 import CareerRoadmap from "@/components/CareerRoadmap";
 import ChatPanel, { ChatSeed } from "@/components/ChatPanel";
 import FiltersPanel from "@/components/FiltersPanel";
@@ -37,6 +37,41 @@ const METHOD_LABELS: Record<Method, string> = {
   keyword: "پایه: هم‌پوشانی واژه‌ها",
 };
 
+type Tab = "search" | "resume" | "roadmap";
+type Mode = "list" | "chat";
+
+const TABS: { id: Tab; icon: string; label: string }[] = [
+  { id: "search", icon: "🔍", label: "جستجو و دستیار" },
+  { id: "resume", icon: "📄", label: "جستجو با رزومه" },
+  { id: "roadmap", icon: "🗺️", label: "نقشه مسیر شغلی" },
+];
+
+const MODES: { id: Mode; icon: string; label: string }[] = [
+  { id: "list", icon: "📋", label: "فهرست آگهی‌ها" },
+  { id: "chat", icon: "💬", label: "پاسخ دستیار هوشمند" },
+];
+
+/** Arrow/Home/End keyboard navigation for tab and radio groups (RTL: ArrowLeft moves forward). */
+function arrowNav<T extends string>(
+  e: KeyboardEvent<HTMLElement>,
+  ids: T[],
+  current: T,
+  select: (id: T) => void,
+  idPrefix: string,
+) {
+  const i = ids.indexOf(current);
+  const next =
+    e.key === "ArrowLeft" ? ids[(i + 1) % ids.length]
+    : e.key === "ArrowRight" ? ids[(i - 1 + ids.length) % ids.length]
+    : e.key === "Home" ? ids[0]
+    : e.key === "End" ? ids[ids.length - 1]
+    : null;
+  if (!next) return;
+  e.preventDefault();
+  select(next);
+  document.getElementById(idPrefix + next)?.focus();
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -48,8 +83,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [tab, setTab] = useState<"search" | "resume" | "roadmap">("search");
-  const [mode, setMode] = useState<"list" | "chat">("list");
+  const [tab, setTab] = useState<Tab>("search");
+  const [mode, setMode] = useState<Mode>("list");
   const [seed, setSeed] = useState<ChatSeed | null>(null);
 
   useEffect(() => {
@@ -116,28 +151,45 @@ export default function Home() {
           واقعی و به‌روز انتخاب می‌شوند و دلیل هر پیشنهاد از متن خود آگهی نشان داده می‌شود.
         </p>
 
-        <nav className="segmented" role="tablist">
-          <button role="tab" aria-selected={tab === "search"} className={tab === "search" ? "seg seg-on" : "seg"} onClick={() => setTab("search")}>
-            🔍 جستجو و دستیار
-          </button>
-          <button role="tab" aria-selected={tab === "resume"} className={tab === "resume" ? "seg seg-on" : "seg"} onClick={() => setTab("resume")}>
-            📄 جستجو با رزومه
-          </button>
-          <button role="tab" aria-selected={tab === "roadmap"} className={tab === "roadmap" ? "seg seg-on" : "seg"} onClick={() => setTab("roadmap")}>
-            🗺️ نقشه مسیر شغلی
-          </button>
+        <nav className="segmented" role="tablist" aria-label="بخش‌ها" onKeyDown={(e) => arrowNav(e, TABS.map((t) => t.id), tab, setTab, "tab-")}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              id={`tab-${t.id}`}
+              role="tab"
+              aria-selected={tab === t.id}
+              aria-controls={`panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className={tab === t.id ? "seg seg-on" : "seg"}
+              onClick={() => setTab(t.id)}
+            >
+              <span aria-hidden="true">{t.icon}</span> {t.label}
+            </button>
+          ))}
         </nav>
-        {tab === "resume" && <ResumePanel />}
+        {tab === "resume" && (
+          <div role="tabpanel" id="panel-resume" aria-labelledby="tab-resume">
+            <ResumePanel />
+          </div>
+        )}
         {tab === "search" && (
-        <>
+        <div role="tabpanel" id="panel-search" aria-labelledby="tab-search">
         <form onSubmit={onSubmit} className="search">
-          <div className="mode-switch" role="radiogroup" aria-label="نوع پاسخ">
-            <button type="button" role="radio" aria-checked={mode === "list"} className={mode === "list" ? "mode mode-on" : "mode"} onClick={() => setMode("list")}>
-              📋 فهرست آگهی‌ها
-            </button>
-            <button type="button" role="radio" aria-checked={mode === "chat"} className={mode === "chat" ? "mode mode-on" : "mode"} onClick={() => setMode("chat")}>
-              💬 پاسخ دستیار هوشمند
-            </button>
+          <div className="mode-switch" role="radiogroup" aria-label="نوع پاسخ" onKeyDown={(e) => arrowNav(e, MODES.map((m) => m.id), mode, setMode, "mode-")}>
+            {MODES.map((m) => (
+              <button
+                key={m.id}
+                id={`mode-${m.id}`}
+                type="button"
+                role="radio"
+                aria-checked={mode === m.id}
+                tabIndex={mode === m.id ? 0 : -1}
+                className={mode === m.id ? "mode mode-on" : "mode"}
+                onClick={() => setMode(m.id)}
+              >
+                <span aria-hidden="true">{m.icon}</span> {m.label}
+              </button>
+            ))}
           </div>
           <textarea
             value={query}
@@ -182,6 +234,9 @@ export default function Home() {
                 </label>
               </div>
             </details>
+            <span className="kbd-hint muted small">
+              <kbd>Ctrl</kbd>+<kbd>Enter</kbd> برای {mode === "chat" ? "پرسیدن" : "جستجو"}
+            </span>
             <button className="btn btn-primary btn-lg" type="submit" disabled={loading || query.trim().length < 2}>
               {mode === "chat" ? "بپرس" : loading ? "در حال جستجو…" : "جستجو"}
             </button>
@@ -193,23 +248,27 @@ export default function Home() {
               key={ex.label}
               type="button"
               className="sample"
+              title={ex.text}
               onClick={() => {
                 setQuery(ex.text);
                 go(ex.text);
               }}
             >
-              <span className="sample-icon">{ex.icon}</span>
+              <span className="sample-icon" aria-hidden="true">{ex.icon}</span>
               <span className="sample-label">{ex.label}</span>
-              <span className="sample-text">{ex.text}</span>
             </button>
           ))}
         </div>
-        </>
+        </div>
         )}
         {status && <div className="alert">{status}</div>}
       </header>
 
-      {tab === "roadmap" && <main className="career-main"><CareerRoadmap /></main>}
+      {tab === "roadmap" && (
+        <main className="career-main" role="tabpanel" id="panel-roadmap" aria-labelledby="tab-roadmap">
+          <CareerRoadmap />
+        </main>
+      )}
 
       {/* Kept mounted so the conversation survives switching modes/tabs. */}
       <main className="chat-main" hidden={tab !== "search" || mode !== "chat"}>
