@@ -1,44 +1,101 @@
-# docker compose up -d --build        -> UI on http://localhost:3000, API on :8000
-# Needs ./model/multilingual-e5-base and a built index in ./data/index (see README), and .env for the LLM.
+# Khoneyab local stack: API, web UI, Qdrant, PostgreSQL and Redis.
+# Copy .env.example to .env and replace the development database password before sharing this stack.
 services:
   api:
     build: .
-    image: jobyab-api:latest
-    container_name: jobyab-api
+    image: khoneyab-api:latest
+    container_name: khoneyab-api
     restart: unless-stopped
     env_file: .env
     environment:
-      - QDRANT_URL=http://qdrant:6333
-      - MONITORING_DB_PATH=/app/logs/requests.sqlite3
+      QDRANT_URL: http://qdrant:6333
+      DATABASE_URL: postgresql://${POSTGRES_USER:-khoneyab}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-khoneyab}
+      REDIS_URL: redis://redis:6379/0
+      MONITORING_DB_PATH: /app/logs/requests.sqlite3
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
-      - 8000:8000
+      - "8000:8000"
     volumes:
-      - ./model:/app/model:ro    # embedding model
-      - ./data:/app/data         # job index + live crawl files
-      - ./logs:/app/logs         # monitoring ledger (token/speed history per request)
+      - ./model:/app/model:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
-      - qdrant                   # crawl cache (+ optional job groups)
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 8s
+      start_period: 90s
+      retries: 5
 
   web:
     build: ./ui/web
-    image: jobyab-web:latest
-    container_name: jobyab-web
+    image: khoneyab-web:latest
+    container_name: khoneyab-web
     restart: unless-stopped
     environment:
-      - JOB_API_URL=http://api:8000
+      JOB_API_URL: http://api:8000
     ports:
-      - 3000:3000
+      - "${WEB_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: khoneyab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-khoneyab}
+      POSTGRES_USER: ${POSTGRES_USER:-khoneyab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-khoneyab} -d $${POSTGRES_DB:-khoneyab}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: khoneyab-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   qdrant:
-    # Caches live-crawled ads + embeddings (crawl_cache in configs/job_search.yaml); also used by job groups.
-    # Web UI: http://localhost:6333/dashboard
     image: qdrant/qdrant:v1.15.4
-    container_name: jobyab-qdrant
+    container_name: khoneyab-qdrant
     restart: unless-stopped
     ports:
-      - 6333:6333
+      - "6333:6333"
     volumes:
-      - ./data/qdrant:/qdrant/storage   # persists the cache across restarts
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The official image intentionally has no curl/wget; bash TCP probing keeps
+      # the check image-native while still waiting for the HTTP port to accept.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:

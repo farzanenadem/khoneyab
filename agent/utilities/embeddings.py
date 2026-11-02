@@ -45,7 +45,7 @@ def create_embedding(name: str, **kwargs):
             model_kwargs={
                 "device": kwargs.get("device", "cpu"),
                 "trust_remote_code": True,
-                "tokenizer_kwargs": {
+                "processor_kwargs": {
                     "fix_mistral_regex": True,
                     "extra_special_tokens": {},
                 },

@@ -1,23 +1,21 @@
-from pathlib import Path
-
-import yaml
-from yaml.loader import SafeLoader
 from langchain_core.prompts import ChatPromptTemplate
 
 from agent.graphs.models import create_llm
 from agent.graphs.nodes.context_rules import create_general_context_prompt
+from agent.graphs.nodes.prompt_loader import load_prompt_file
+
+
+def _render_documents(documents) -> str:
+    """Expose only numbered source text to the model, never Python object reprs."""
+    return "\n\n".join(
+        f"[آگهی {index}]\n{document.page_content[:1800]}"
+        for index, document in enumerate(documents, 1)
+    ) or "(هیچ آگهی‌ای پیدا نشد)"
 
 
 def create_generate_with_context_node(model_conf, interactive=False):
 
-    yaml_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "agent_jobs"
-        / "prompts"
-        / "generate_with_context_chain_node.yaml"
-    )
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        prompt_data = yaml.load(f, Loader=SafeLoader)
+    prompt_data = load_prompt_file("generate_with_context_chain_node.yaml")
 
     section = (
         prompt_data["interactive"] if interactive else prompt_data["non_interactive"]
@@ -41,7 +39,8 @@ def create_generate_with_context_node(model_conf, interactive=False):
             {
                 "query": query,
                 "general_context": general_context,
-                "context": documents,
+                "context": _render_documents(documents),
+                "retrieval_note": state.get("retrieval_note", ""),
             }
         )
 

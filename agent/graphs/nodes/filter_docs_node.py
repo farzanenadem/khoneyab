@@ -1,13 +1,11 @@
-from pathlib import Path
 from typing import List
 
-import yaml
-from yaml.loader import SafeLoader
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from agent.graphs.models import create_llm
+from agent.graphs.nodes.prompt_loader import load_prompt_file
 
 class ResultItem(BaseModel):
     isRelevant: bool = Field(
@@ -29,14 +27,7 @@ def chunk_items(items, chunk_size):
 
 def create_filter_docs_node(model_conf, batch_size):
 
-    yaml_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "agent_jobs"
-        / "prompts"
-        / "filter_docs_node.yaml"
-    )
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        prompt_data = yaml.load(f, Loader=SafeLoader)
+    prompt_data = load_prompt_file("filter_docs_node.yaml")
 
     relevancy_prompt = ChatPromptTemplate.from_messages(
         [
@@ -65,15 +56,20 @@ def create_filter_docs_node(model_conf, batch_size):
             )
 
         # A malformed model reply must not fail the request: keep that batch unfiltered.
-        releated_result = relevancy_check_chain.batch(tasks, return_exceptions=True)
-        releated_result = [
-            Result(items=[ResultItem(isRelevant=True)] * len(batches[i]))
-            if isinstance(r, Exception)
-            else r
-            for i, r in enumerate(releated_result)
-        ]
+        related_result = relevancy_check_chain.batch(tasks, return_exceptions=True)
+        normalized_results = []
+        for i, result in enumerate(related_result):
+            if isinstance(result, Exception):
+                normalized_results.append(Result(items=[ResultItem(isRelevant=True)] * len(batches[i])))
+                continue
+            # A short/long model response must not silently drop or misalign documents.
+            items = list(result.items[: len(batches[i])])
+            items.extend(ResultItem(isRelevant=True) for _ in range(len(batches[i]) - len(items)))
+            normalized_results.append(Result(items=items))
+        related_result = normalized_results
+        attempts = int(state.get("attempts", 0)) + 1
         filtered_docs = []
-        for ti, task_result in enumerate(releated_result):
+        for ti, task_result in enumerate(related_result):
             # Keep the Document objects so metadata (e.g. job links) reaches the API.
             task_data = batches[ti]
             for index, item in enumerate(task_result.items):
@@ -84,13 +80,13 @@ def create_filter_docs_node(model_conf, batch_size):
 
         return {
             "documents": filtered_docs,
-            "attempts": state.get("attempts") + 1,
+            "attempts": attempts,
             "debug_info": [
                 {
                     "node_name": "filter_docs_node",
                     "output": filtered_docs,
                     "metadata": [
-                        {"key": "attempts", "value": state.get("attempts") + 1}
+                        {"key": "attempts", "value": attempts}
                     ],
                 }
             ],

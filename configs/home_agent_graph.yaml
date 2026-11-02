@@ -1,0 +1,17 @@
+# Conversational home-buying assistant «خونه‌یاب» (/chat, /homes/chat). "url: env" reads LLM_BASE_URL / LLM_API_KEY from .env
+# (Metis DeepSeek); "name: env" = LLM_MODEL (final answer), "name: env_fast" = LLM_FAST_MODEL
+# (routing, listing filtering). A real URL selects an Ollama server instead.
+coordinator_router:
+  model: {url: env, name: env_fast}
+retriever:
+  top_k: 8            # Divar listings passed to the LLM and shown as cards
+fallback:
+  interactive: True
+  model: {url: env, name: env_fast}
+generate_with_context:
+  interactive: True
+  model: {url: env, name: env}
+filter_docs:
+  enable: False       # deterministic ranking already applies city/budget; saves an LLM call
+  batch_size: 3
+  model: {url: env, name: env_fast}

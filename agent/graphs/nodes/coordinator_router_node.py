@@ -1,23 +1,14 @@
-from pathlib import Path
-import yaml
-from yaml.loader import SafeLoader
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from agent.graphs.models import create_llm
 from agent.utilities.chosentool import ChosenTool
 from agent.graphs.nodes.context_rules import create_general_context_prompt 
+from agent.graphs.nodes.prompt_loader import load_prompt_file
 
 
 def create_coordinator_router_node(model_conf):
-    yaml_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "agent_jobs"
-        / "prompts"
-        / "coordinator_router.yaml"
-    )
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        prompt_data = yaml.load(f, Loader=SafeLoader)
+    prompt_data = load_prompt_file("coordinator_router.yaml")
     prompt = ChatPromptTemplate.from_messages(
         [
             (

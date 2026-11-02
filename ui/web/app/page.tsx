@@ -1,66 +1,31 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
-import CareerRoadmap from "@/components/CareerRoadmap";
-import ChatPanel, { ChatSeed } from "@/components/ChatPanel";
-import FiltersPanel from "@/components/FiltersPanel";
-import JobCard from "@/components/JobCard";
-import QueryUnderstanding from "@/components/QueryUnderstanding";
-import ResumePanel from "@/components/ResumePanel";
-import UsagePanel from "@/components/UsagePanel";
-import {
-  EMPTY_FILTERS,
-  FilterOptions,
-  Filters,
-  Method,
-  SearchResponse,
-  Sort,
-  getFilterOptions,
-  getHealth,
-  searchJobs,
-} from "@/lib/api";
+import { KeyboardEvent, useEffect, useState } from "react";
+import HomeChat from "@/components/HomeChat";
+import HomeListings from "@/components/HomeListings";
+import LoanPanel from "@/components/LoanPanel";
+import PurchaseRoadmap from "@/components/PurchaseRoadmap";
+import Icon, { IconName } from "@/components/Icon";
+import ThemeToggle from "@/components/ThemeToggle";
+import { HomeOptions, getHomeOptions } from "@/lib/homes";
 
-const EXAMPLES = [
-  {
-    icon: "🤖",
-    label: "هوش مصنوعی",
-    text: "دنبال یک موقعیت شغلی در حوزه هوش مصنوعی هستم که به Python، مدل‌های زبانی بزرگ و RAG مرتبط باشد و ترجیحاً در تهران یا به‌صورت دورکاری باشد.",
-  },
-  { icon: "💻", label: "فرانت‌اند", text: "برنامه نویس فرانت‌اند با React و TypeScript، تمام وقت در تهران" },
-  { icon: "📊", label: "حسابداری", text: "حسابدار با ۳ سال سابقه، آشنا به اکسل و نرم‌افزار سپیدار، ترجیحاً در اصفهان" },
-  { icon: "📣", label: "کارآموزی", text: "کارآموزی در دیجیتال مارکتینگ و سئو بدون سابقه" },
+type Tab = "listings" | "loans" | "roadmap";
+type Mode = "chat" | "list";
+
+const MODES: { id: Mode; icon: IconName; label: string }[] = [
+  { id: "chat", icon: "chat", label: "گفتگو با دستیار" },
+  { id: "list", icon: "list", label: "فهرست و فیلترها" },
 ];
 
-const METHOD_LABELS: Record<Method, string> = {
-  hybrid: "ترکیبی (پیشنهادی)",
-  semantic: "فقط معنایی",
-  bm25: "فقط واژگانی (BM25)",
-  keyword: "پایه: هم‌پوشانی واژه‌ها",
-};
-
-type Tab = "search" | "resume" | "roadmap" | "usage";
-type Mode = "list" | "chat";
-
-const TABS: { id: Tab; icon: string; label: string }[] = [
-  { id: "search", icon: "🔍", label: "جستجو و دستیار" },
-  { id: "resume", icon: "📄", label: "جستجو با رزومه" },
-  { id: "roadmap", icon: "🗺️", label: "نقشه مسیر شغلی" },
-  { id: "usage", icon: "📊", label: "مصرف توکن" },
+const TABS: { id: Tab; icon: IconName; label: string }[] = [
+  { id: "listings", icon: "home", label: "آگهی‌های خرید خانه" },
+  { id: "loans", icon: "bank", label: "وام‌های مسکن بانک‌ها" },
+  { id: "roadmap", icon: "map", label: "نقشه راه استعلام‌ها" },
 ];
 
-const MODES: { id: Mode; icon: string; label: string }[] = [
-  { id: "list", icon: "📋", label: "فهرست آگهی‌ها" },
-  { id: "chat", icon: "💬", label: "پاسخ دستیار هوشمند" },
-];
-
-/** Arrow/Home/End keyboard navigation for tab and radio groups (RTL: ArrowLeft moves forward). */
-function arrowNav<T extends string>(
-  e: KeyboardEvent<HTMLElement>,
-  ids: T[],
-  current: T,
-  select: (id: T) => void,
-  idPrefix: string,
-) {
+/** Arrow/Home/End keyboard navigation for the tab list (RTL: ArrowLeft moves forward). */
+function arrowNav(e: KeyboardEvent<HTMLElement>, current: Tab, select: (id: Tab) => void) {
+  const ids = TABS.map((t) => t.id);
   const i = ids.indexOf(current);
   const next =
     e.key === "ArrowLeft" ? ids[(i + 1) % ids.length]
@@ -71,89 +36,73 @@ function arrowNav<T extends string>(
   if (!next) return;
   e.preventDefault();
   select(next);
-  document.getElementById(idPrefix + next)?.focus();
+  document.getElementById("tab-" + next)?.focus();
 }
 
 export default function Home() {
-  const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [options, setOptions] = useState<FilterOptions | null>(null);
-  const [method, setMethod] = useState<Method>("hybrid");
-  const [topK, setTopK] = useState(10);
-  const [sort, setSort] = useState<Sort>("newest");
-  const [data, setData] = useState<SearchResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("listings");
+  const [options, setOptions] = useState<HomeOptions | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("search");
-  const [mode, setMode] = useState<Mode>("list");
-  const [seed, setSeed] = useState<ChatSeed | null>(null);
+  const [price, setPrice] = useState(10_000_000_000);
+  const [mode, setMode] = useState<Mode>("chat");
+  const pickPrice = (p: number) => {
+    setPrice(p);
+    setTab("loans");
+  };
 
   useEffect(() => {
-    getHealth()
-      .then((h) => {
-        if (!h.job_search_ready) setStatus(`سرویس جستجو آماده نیست: ${h.job_search_error ?? ""}`);
+    getHomeOptions()
+      .then((o) => {
+        setOptions(o);
+        if (!o.total) setStatus("هنوز آگهی‌ای ذخیره نشده؛ ابتدا python -m agent.home_search.divar_crawler را اجرا کنید.");
       })
-      .catch(() => setStatus("ارتباط با سرور جستجو برقرار نشد. آیا API روی پورت ۸۰۰۰ اجرا شده است؟"));
-    getFilterOptions().then(setOptions).catch(() => setOptions(null));
+      .catch(() => setStatus("ارتباط با سرور برقرار نشد. آیا API روی پورت ۸۰۰۰ اجرا شده است؟"));
   }, []);
-
-  const run = useCallback(
-    async (q: string, f: Filters, m: Method, k: number, so: Sort = "relevance") => {
-      if (q.trim().length < 2) return;
-      setLoading(true);
-      setError(null);
-      try {
-        setData(await searchJobs(q.trim(), f, k, m, so));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
-
-  // Re-run the current search when filters or settings change.
-  useEffect(() => {
-    if (data) run(query, filters, method, topK, sort);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, method, topK, sort]);
-
-  const go = (q: string) => {
-    if (q.trim().length < 2) return;
-    if (mode === "chat") setSeed({ text: q.trim(), nonce: Date.now() });
-    else run(q, filters, method, topK, sort);
-  };
-
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    go(query);
-  };
 
   return (
     <div className="page">
       <div className="topbar">
         <div className="brand">
-          <span className="logo">ج</span>
-          <span>جاب‌یاب</span>
+          <span className="logo"><Icon name="home" size={21} strokeWidth={2.2} /></span>
+          <span className="brand-copy">خونه‌یاب <small>HOME FINDER</small></span>
         </div>
-        <span className="topbar-meta">
-          {options ? `${options.total.toLocaleString("fa-IR")} آگهی از جاب‌ویژن، جابینجا و ایران‌تلنت` : "در حال اتصال…"}
-        </span>
+        <nav className="top-nav" aria-label="ناوبری اصلی">
+          <button type="button" className={`top-nav-link ${tab === "listings" ? "top-nav-link-on" : ""}`} onClick={() => setTab("listings")}>خانه‌ها</button>
+          <button type="button" className={`top-nav-link ${tab === "loans" ? "top-nav-link-on" : ""}`} onClick={() => setTab("loans")}>توان مالی</button>
+          <button type="button" className={`top-nav-link ${tab === "roadmap" ? "top-nav-link-on" : ""}`} onClick={() => setTab("roadmap")}>مسیر امن خرید</button>
+        </nav>
+        <div className="topbar-actions">
+          <span className="topbar-meta"><span className="live-dot" />
+            {options ? `${options.total.toLocaleString("fa-IR")} آگهی نمونه از دیوار` : "در حال اتصال…"}
+          </span>
+          <ThemeToggle />
+        </div>
       </div>
 
       <header className="hero">
-        <span className="hero-badge">✨ جستجوی هوشمند شغل به زبان فارسی</span>
-        <h1>
-          شغل دلخواهت را <span className="accent">توصیف کن</span>، ما پیدایش می‌کنیم
-        </h1>
-        <p className="hero-sub">
-          مهارت‌ها، سابقه، شهر یا دورکاری را به زبان خودت بنویس یا رزومه‌ات را بارگذاری کن. نتایج از آگهی‌های
-          واقعی و به‌روز انتخاب می‌شوند و دلیل هر پیشنهاد از متن خود آگهی نشان داده می‌شود.
-        </p>
-
-        <nav className="segmented" role="tablist" aria-label="بخش‌ها" onKeyDown={(e) => arrowNav(e, TABS.map((t) => t.id), tab, setTab, "tab-")}>
+        <div className="hero-grid">
+          <div className="hero-copy">
+            <span className="hero-badge"><span className="hero-badge-dot" /><Icon name="sparkles" size={15} /> دستیار خرید خانه</span>
+            <h1>برای خانه‌ای که <span className="accent">دوستش داری</span> دقیق‌تر انتخاب کن</h1>
+            <p className="hero-sub">
+              آگهی‌های واقعی را کنار هم ببین، بودجه‌ات را بسنج و قبل از هر پرداخت با خیال جمع جلو برو.
+            </p>
+            <div className="hero-trust"><span><Icon name="shield" size={15} /> داده‌های واقعی</span><span><Icon name="calculator" size={15} /> محاسبه شفاف</span><span><Icon name="check" size={15} /> بدون حدس</span></div>
+          </div>
+          <div className="hero-art" aria-hidden="true">
+            <div className="art-window">
+              <div className="art-window-bar"><span /><span /><span /></div>
+              <div className="art-window-body">
+                <div className="art-house"><Icon name="home" size={54} strokeWidth={1.35} /></div>
+                <div className="art-lines"><i /><i /><i /></div>
+              </div>
+              <div className="art-window-footer"><span><Icon name="pin" size={14} /> تهران و کرج</span><b>انتخاب مطمئن</b></div>
+            </div>
+            <div className="float-card float-card-top"><span className="float-icon"><Icon name="check" size={15} /></span><span><b>۱٬۴۶۶ آگهی واقعی</b><small>آماده‌ی جست‌وجو</small></span></div>
+            <div className="float-card float-card-bottom"><Icon name="shield" size={16} /><span>قبل از معامله، بررسی کن</span></div>
+          </div>
+        </div>
+        <nav className="segmented" role="tablist" aria-label="بخش‌ها" onKeyDown={(e) => arrowNav(e, tab, setTab)}>
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -165,162 +114,46 @@ export default function Home() {
               className={tab === t.id ? "seg seg-on" : "seg"}
               onClick={() => setTab(t.id)}
             >
-              <span aria-hidden="true">{t.icon}</span> {t.label}
+              <Icon name={t.icon} size={17} /> <span>{t.label}</span>
             </button>
           ))}
         </nav>
-        {tab === "resume" && (
-          <div role="tabpanel" id="panel-resume" aria-labelledby="tab-resume">
-            <ResumePanel />
-          </div>
-        )}
-        {tab === "search" && (
-        <div role="tabpanel" id="panel-search" aria-labelledby="tab-search">
-        <form onSubmit={onSubmit} className="search">
-          <div className="mode-switch" role="radiogroup" aria-label="نوع پاسخ" onKeyDown={(e) => arrowNav(e, MODES.map((m) => m.id), mode, setMode, "mode-")}>
-            {MODES.map((m) => (
-              <button
-                key={m.id}
-                id={`mode-${m.id}`}
-                type="button"
-                role="radio"
-                aria-checked={mode === m.id}
-                tabIndex={mode === m.id ? 0 : -1}
-                className={mode === m.id ? "mode mode-on" : "mode"}
-                onClick={() => setMode(m.id)}
-              >
-                <span aria-hidden="true">{m.icon}</span> {m.label}
-              </button>
-            ))}
-          </div>
-          <textarea
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="مثلاً: دنبال کار در حوزه تحلیل داده با SQL و Power BI در تهران هستم…"
-            rows={3}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSubmit(e);
-            }}
-            aria-label="توضیح شغل دلخواه"
-          />
-          <div className="search-row">
-            <details className="advanced">
-              <summary>تنظیمات پیشرفته</summary>
-              <div className="advanced-body">
-                <label className="inline">
-                  مرتب‌سازی
-                  <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-                    <option value="relevance">مرتبط‌ترین</option>
-                    <option value="newest">جدیدترین</option>
-                  </select>
-                </label>
-                <label className="inline">
-                  روش رتبه‌بندی
-                  <select value={method} onChange={(e) => setMethod(e.target.value as Method)}>
-                    {(Object.keys(METHOD_LABELS) as Method[]).map((m) => (
-                      <option key={m} value={m}>
-                        {METHOD_LABELS[m]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="inline">
-                  تعداد نتایج
-                  <select value={topK} onChange={(e) => setTopK(Number(e.target.value))}>
-                    {[10, 20, 30, 50].map((k) => (
-                      <option key={k} value={k}>
-                        {k.toLocaleString("fa-IR")}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </details>
-            <span className="kbd-hint muted small">
-              <kbd>Ctrl</kbd>+<kbd>Enter</kbd> برای {mode === "chat" ? "پرسیدن" : "جستجو"}
-            </span>
-            <button className="btn btn-primary btn-lg" type="submit" disabled={loading || query.trim().length < 2}>
-              {mode === "chat" ? "بپرس" : loading ? "در حال جستجو…" : "جستجو"}
-            </button>
-          </div>
-        </form>
-        <div className="samples">
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex.label}
-              type="button"
-              className="sample"
-              title={ex.text}
-              onClick={() => {
-                setQuery(ex.text);
-                go(ex.text);
-              }}
-            >
-              <span className="sample-icon" aria-hidden="true">{ex.icon}</span>
-              <span className="sample-label">{ex.label}</span>
-            </button>
-          ))}
+        <div className="hero-stats" aria-label="مزیت‌های خونه‌یاب">
+          <div><strong>۱٬۴۶۶</strong><span>آگهی آماده‌ی بررسی</span></div>
+          <div><strong>۳</strong><span>ابزار برای تصمیم‌گیری</span></div>
+          <div><strong>۱۰۰٪</strong><span>شفاف و مستند</span></div>
         </div>
-        </div>
-        )}
         {status && <div className="alert">{status}</div>}
       </header>
 
-      {tab === "usage" && (
-        <main className="career-main" role="tabpanel" id="panel-usage" aria-labelledby="tab-usage">
-          <UsagePanel />
-        </main>
-      )}
-
-      {tab === "roadmap" && (
-        <main className="career-main" role="tabpanel" id="panel-roadmap" aria-labelledby="tab-roadmap">
-          <CareerRoadmap />
-        </main>
-      )}
-
-      {/* Kept mounted so the conversation survives switching modes/tabs. */}
-      <main className="chat-main" hidden={tab !== "search" || mode !== "chat"}>
-        <ChatPanel seed={seed} />
+      <main className="career-main" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "listings" && (
+          <div className="mode-switch h-modes" role="radiogroup" aria-label="نوع جستجو">
+            {MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={mode === m.id}
+                className={mode === m.id ? "mode mode-on" : "mode"}
+                onClick={() => setMode(m.id)}
+              >
+                <Icon name={m.icon} size={17} /> {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Kept mounted so the conversation survives switching modes/tabs. */}
+        <div hidden={tab !== "listings" || mode !== "chat"}>
+          <HomeChat onPickPrice={pickPrice} />
+        </div>
+        {tab === "listings" && mode === "list" && <HomeListings options={options} onPickPrice={pickPrice} />}
+        {/* Kept mounted so the loan form survives switching tabs. */}
+        <div hidden={tab !== "loans"}>
+          <LoanPanel price={price} cities={options?.cities.map((c) => c.city) ?? []} />
+        </div>
+        {tab === "roadmap" && <PurchaseRoadmap />}
       </main>
-
-      {tab === "search" && mode === "list" && (
-      <main className="layout">
-        <FiltersPanel options={options} filters={filters} onChange={setFilters} onReset={() => setFilters(EMPTY_FILTERS)} />
-
-        <section className="results" aria-live="polite">
-          {error && <div className="alert">خطا در جستجو: {error}</div>}
-          {data && (
-            <>
-              <QueryUnderstanding q={data.query} />
-              {data.live?.enabled && (
-                <p className="muted small">
-                  {data.live.error
-                    ? "جستجوی زنده انجام نشد؛ نتایج از آگهی‌های ذخیره‌شده است."
-                    : `جستجوی زنده در جاب‌ویژن، جابینجا و ایران‌تلنت برای «${(data.live.keywords || []).join("، ")}»: ${(data.live.new_jobs ?? 0).toLocaleString("fa-IR")} آگهی تازه اضافه شد.`}
-                </p>
-              )}
-              <p className="muted small">
-                {data.results.length.toLocaleString("fa-IR")} آگهی مرتبط از میان{" "}
-                {data.total_candidates.toLocaleString("fa-IR")} آگهیِ فعال و منطبق با فیلترها (آگهی‌های منقضی‌شده نمایش داده نمی‌شوند)
-              </p>
-              {data.results.length === 0 && (
-                <div className="empty">آگهی‌ای با این فیلترها پیدا نشد. فیلترها را کمتر کنید.</div>
-              )}
-              {data.results.map((r) => (
-                <JobCard key={r.job.id} result={r} />
-              ))}
-            </>
-          )}
-          {!data && !error && (
-            <div className="empty">
-              <div className="empty-icon">🧭</div>
-              توضیح شغل دلخواهتان را بنویسید یا روی یکی از نمونه‌ها کلیک کنید.
-            </div>
-          )}
-        </section>
-      </main>
-      )}
-
     </div>
   );
 }

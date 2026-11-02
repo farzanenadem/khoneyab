@@ -1,6 +1,5 @@
 # syntax=docker/dockerfile:1
-# Job search API (FastAPI + embeddings). CPU-only image; the embedding model and the
-# job index are mounted from ./model and ./data at runtime (see docker-compose.yaml).
+# Khoneyab API (FastAPI). Runtime data is mounted from ./data and ./logs.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -29,6 +28,7 @@ COPY agent ./agent
 COPY ui/__init__.py ./ui/__init__.py
 COPY ui/src ./ui/src
 COPY configs ./configs
+COPY iran_property_due_diligence.md ./iran_property_due_diligence.md
 
 RUN useradd --create-home --uid 1000 app && chown -R app /app
 USER app

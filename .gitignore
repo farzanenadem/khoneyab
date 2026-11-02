@@ -1,18 +1,30 @@
-.venv
-.venv_agent
-.pyc
-__pycache__
-weaviate*
-.idea
-.vscode
-model
-logs
-hf
-data
-node_modules
-.pytest_cache
-.env
-# Scraped JobVision ads and the RFP are not published (JobVision terms / organiser document)
-rfp/
-.env
+# Local environments and caches
+.venv/
+.venv_agent/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp-*/
+node_modules/
+.next/
+*.tsbuildinfo
+
+# Local data, models, logs and secrets (never commit)
+model/
+data/
+hf/
+logs/
 *.log
+.env
+
+# IDE and local tooling
+.idea/
+.vscode/
+.claude/
+tools/
+snapshots/
+.qdrant-initialized
+weaviate*
+
+# Private source material
+rfp/

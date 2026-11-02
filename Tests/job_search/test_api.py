@@ -62,4 +62,4 @@ def test_returns_503_when_index_missing(monkeypatch):
     monkeypatch.setattr("agent.job_search.service.create_search_service", lambda: (_ for _ in ()).throw(FileNotFoundError("no index")))
     with TestClient(app) as c:
         r = c.post("/jobs/search", json={"query": "حسابدار"})
-        assert r.status_code == 503 and "no index" in r.json()["detail"]
+    assert r.status_code == 503 and "not ready" in r.json()["detail"]

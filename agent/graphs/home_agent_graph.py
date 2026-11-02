@@ -13,7 +13,7 @@ from agent.graphs.nodes import (
     create_fallback_node,
     create_filter_docs_node,
     create_generate_with_context_node,
-    create_job_retrieve_node,
+    create_home_retrieve_node,
 )
 from agent.graphs.states import BaseAgentState
 
@@ -25,32 +25,35 @@ GENERATE_WITH_CONTEXT = "generate_with_context"
 FILTER_DOCS = "filter_docs"
 
 
-class AgentSate(BaseAgentState):
+class AgentState(BaseAgentState):
     route: str
     query: str
     messages: Annotated[list[AnyMessage], operator.add]
     generation: str
     documents: list[Document]
     attempts: int
+    filters: dict
+    results: list[dict]
+    understood: list[str]
+    relaxed: list[str]
+    retrieval_note: str
 
 
-class JobAgentGraph:
-    """Conversational job assistant:
+class HomeAgentGraph:
+    """Conversational home-buying assistant («خونه‌یاب»):
 
-    route -> retrieve (job index + live crawl) -> filter ads -> answer | fallback
+    route -> retrieve (Divar listings; filters persist per thread) -> filter listings -> answer | fallback
     """
 
-    def __init__(self, config, job_search=None):
+    def __init__(self, config, load_listings=None):
         checkpointer = InMemorySaver()
 
         coordinator_router_node = create_coordinator_router_node(config["coordinator_router"]["model"])
 
-        if job_search is None:
-            from agent.job_search.service import create_search_service
-
-            job_search = create_search_service()
+        if load_listings is None:
+            from agent.home_search.listings import load_listings
         retriever_conf = config["retriever"]
-        retrieve_node = create_job_retrieve_node(job_search, retriever_conf.get("top_k", 8))
+        retrieve_node = create_home_retrieve_node(load_listings, retriever_conf.get("top_k", 8))
 
         fallback_conf = config["fallback"]
         fallback_node = create_fallback_node(fallback_conf["model"], fallback_conf["interactive"])
@@ -64,7 +67,7 @@ class JobAgentGraph:
         filter_docs_conf = config["filter_docs"]
         use_filter = filter_docs_conf.get("enable", True)
 
-        builder = StateGraph(AgentSate)
+        builder = StateGraph(AgentState)
         builder.add_node(COORDINATOR_ROUTER, coordinator_router_node)
         builder.add_node(RETRIEVE, retrieve_node)
         builder.add_node(FALLBACK, fallback_node)
@@ -106,6 +109,10 @@ class JobAgentGraph:
     def close(self):
         pass
 
+    def reset_thread(self, thread_id: str) -> None:
+        """Forget one conversation from the in-process checkpointer."""
+        self._agent.checkpointer.delete_thread(thread_id)
+
     def process_message(self, message: str, user_id: str, thread_id: str, sp=False):
         messages = [HumanMessage(content=message)]
         state = self._agent.invoke(
@@ -125,19 +132,30 @@ class JobAgentGraph:
         generation = state.get("generation")
         content = "⚠️ No answer generated."
         if generation is not None:
-            content = generation.content
+            content = getattr(generation, "content", generation)
 
         documents = state.get("documents", [])
         debug_info = state.get("debug_info", [])
+        # Listings dropped by the LLM filter are not returned as cards either.
+        kept = {d.metadata.get("listing_id") for d in documents}
+        results = [r for r in state.get("results", []) if r["id"] in kept]
 
-        return {"content": content, "documents": documents, "debug_info": debug_info}
+        return {
+            "content": content,
+            "documents": documents,
+            "debug_info": debug_info,
+            "results": results,
+            "filters": state.get("filters"),
+            "understood": state.get("understood", []),
+            "relaxed": state.get("relaxed", []),
+        }
 
 
 if __name__ == "__main__":
     args = None
-    with open("configs/job_agent_graph.yaml", "rb") as config_file:
+    with open("configs/home_agent_graph.yaml", "rb") as config_file:
         args = yaml.load(config_file, Loader=SafeLoader)
 
-    graph = JobAgentGraph(args)
+    graph = HomeAgentGraph(args)
 
-    graph.process_message("دنبال کار برنامه نویسی پایتون در تهران هستم", "1", "1", True)
+    graph.process_message("آپارتمان دو خواب در تهران تا ۸ میلیارد با پارکینگ", "1", "1", True)

@@ -3,44 +3,44 @@
 Guidance for AI coding agents working in this repository.
 
 ## What this is
-Descriptive Persian job search over real JobVision ads: hybrid retrieval + grounded explanations
-(`/jobs/search`), a LangGraph chat assistant on DeepSeek via Metis (`/chat`), and a Next.js RTL UI.
+
+خونه‌یاب is a Persian, RTL home-listing assistant built on real Divar ads. It provides deterministic
+listing search (`/homes/search`), loan planning, purchase due-diligence guidance and a grounded
+LangGraph chat assistant (`/homes/chat`). The legacy JobVision job-search surface remains under
+`/jobs/*` for compatibility.
 
 ## Layout
-- `agent/job_search/` — core: `dataset.py` (normalize/dedupe), `crawler.py` (job pages, robots-aware),
-  `jobvision_crawler.py` (list API client + CLI), `live.py` (per-request live crawl), `query_parser.py`,
-  `index.py` (numpy vectors + BM25), `search.py` (ranking, filters, explanations), `service.py` (factory),
-  `job_groups.py` (optional, off by default: JobVision dataset → two-level KMeans job groups in Qdrant;
-  placement of a request), `build_job_groups_cli.py`.
-- `agent/graphs/job_agent_graph.py` + `agent/graphs/nodes/` — chat agent; prompts in `agent/agent_jobs/prompts/`.
-- `agent/graphs/models/__init__.py` — `create_llm`: `url: env` → OpenAI-compatible gateway from `.env`, else Ollama.
-- `agent/utilities/persian_text.py` — Persian normalization/tokenization (use it; don't re-implement).
-- `ui/src/api.py` — FastAPI. `ui/web/` — Next.js 16 (read `ui/web/AGENTS.md` before editing it).
-- `configs/*.yaml` — all settings; CLI args are loaded by `agent/agent_jobs/snap/arguments.py`.
-- `Tests/job_search/` — pytest suite.
+
+- `agent/home_search/` — home domain: listings, Divar crawler, filters, loans and purchase roadmap.
+- `agent/graphs/home_agent_graph.py` and `agent/graphs/nodes/` — chat graph and small testable nodes.
+- `agent/agent_homes/prompts/` — Persian home-assistant prompts.
+- `agent/job_search/` — retained JobVision search, ranking and optional Qdrant job groups.
+- `agent/utilities/` — Persian normalization/tokenization, embeddings and usage ledger.
+- `ui/src/api.py` — FastAPI routes, Pydantic request/response contracts and middleware.
+- `ui/web/` — Next.js 16 RTL UI (read `ui/web/AGENTS.md` before editing).
+- `configs/` — YAML configuration without secrets.
+- `Tests/home_search/` and `Tests/job_search/` — offline pytest suites.
 
 ## Commands
+
 ```bash
-python -m pytest                                   # must stay green and offline
-python -m agent.job_search.build_job_index_cli     # rebuild index after data/model changes
+python -m pytest
 python -m uvicorn ui.src.api:app --port 8000
 cd ui/web && npx tsc --noEmit && npm run dev
+docker compose up -d --build
 ```
-On Windows use `.venv/Scripts/python.exe`. Another project on `sys.path` also has an `agent` package —
-keep `agent/__init__.py` and `ui/__init__.py`.
+
+On Windows use `.venv/Scripts/python.exe`. Keep `agent/__init__.py` and `ui/__init__.py` because
+another project on `sys.path` also has an `agent` package.
 
 ## Rules
-- **Never fabricate** jobs, companies, salaries, links or skills. Explanations must quote ad text; show
-  salary only when `salary_text` exists. Prompts must keep this constraint.
-- **Secrets**: keys only in `.env` (git-ignored). Never commit `.env`, `rfp/`, `data/`, `model/`.
-- **Crawling**: respect robots.txt (`candidateapi` allows only `/api/v1/JobPost/List`; job pages on
-  `jobvision.ir` are allowed), keep rate limits and the identifying User-Agent, store only needed fields.
-- Search path stays LLM-free and deterministic; LLM use belongs to `/chat`.
-- Tests use `FakeEmbeddings` and fake HTTP sessions — no network or model downloads in tests.
-  Qdrant tests use `QdrantClient(":memory:")`.
-- **Job groups are optional and disabled by default** (`job_groups.enabled`; its accuracy effect is not
-  measured — enable only after comparing with `evaluate_cli`). They are background knowledge: the HF dataset
-  (`data/raw/`, not committed, CC BY-NC 4.0) only
-  places requests into groups and shapes search over current ads; never return dataset rows as jobs.
-  Never read its gender, age, military-service or disability columns (`EXCLUDED_COLUMNS`).
-- Match existing style: config-driven factories, small modules, Persian user-facing text.
+
+- Never fabricate homes, prices, companies, links or features. Explanations must quote source text;
+  show a value only when it exists in the listing. Prompts must keep this constraint.
+- Secrets belong only in `.env` (git-ignored). Never commit `.env`, `rfp/`, `data/`, `model/` or logs.
+- Divar crawling must use the identifying User-Agent, obey rate limits and store only needed fields.
+- Home search stays deterministic and LLM-free; LLM use belongs to `/homes/chat` and `/chat`.
+- Tests use fake HTTP/embedding sessions and no network or model downloads.
+- Job groups are optional and disabled by default; they provide background knowledge only and never
+  return dataset rows as jobs. Never read excluded demographic columns from the dataset.
+- Match existing style: config-driven factories, small modules and Persian user-facing text.

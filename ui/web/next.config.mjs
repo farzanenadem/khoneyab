@@ -1,6 +1,6 @@
 // The browser only talks to Next.js; /api/* is proxied to the FastAPI backend,
 // so the backend URL stays server-side.
-const API_URL = (process.env.JOB_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_URL = (process.env.JOB_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

@@ -1,79 +1,193 @@
-# Descriptive Job Search (جستجوی توصیفی شغل)
+# Khoneyab (خونه‌یاب)
 
-Describe the job you want in plain Persian — skills, experience, city, remote work — and get
-**real JobVision ads**, ranked by relevance and freshness, each with an explanation quoted from the ad.
+A Persian, RTL assistant for home-buying decisions: from finding real listings to estimating loans and checking a safe path to closing the deal.
 
-> «دنبال کار در حوزه هوش مصنوعی با Python، مدل‌های زبانی بزرگ و RAG هستم، ترجیحاً تهران یا دورکاری»
+For the MVP, Khoneyab focuses on three questions:
 
-Built for the Rahnama College ML Bootcamp hackathon (Module B: job matching).
+1. **Which homes match my needs?** Free-text search or precise filters over stored listings.
+2. **Is it financially feasible?** Loan scenarios, monthly installments, loan-certificate costs, down payment and budget gap.
+3. **What should I check before paying?** A step-by-step roadmap of legal, technical and contractual inquiries.
 
-## Features
-- **Hybrid ranking**: `multilingual-e5-base` embeddings + BM25 + skill coverage + location/remote/seniority preferences + recency. Weakly related and expired ads are dropped.
-- **Grounded explanations**: matched skills are quoted verbatim from the ad; missing skills are listed; salary is shown only if the ad states it.
-- **Live crawl**: every request also searches the JobVision list API for the user's keywords (parallel, rate-limited, robots.txt-compliant); new ads join the index immediately.
-- **Chat assistant**: LangGraph agent on DeepSeek (via Metis) that answers only from retrieved ads.
-- **Job groups (KMeans + Qdrant) — optional, off by default** (`job_groups.enabled` in `configs/job_search.yaml`):
-  a request is placed into its closest job groups, learned from the
-  [JobVision Jobposts Dataset](https://huggingface.co/datasets/JobVision/JobVision_Jobposts_Dataset)
-  (2022–2024) by two-level KMeans (77 job categories → KMeans inside each, k by silhouette). The groups'
-  typical titles widen the live crawl and a `group` component re-ranks **current** ads; dataset rows are
-  never returned as jobs. Disabled because its effect on ranking accuracy is not measured yet.
-- **Persian-first**: normalization of Arabic letters, digits, ZWNJ; bilingual synonyms (پایتون ↔ Python); RTL Next.js UI.
+Answers come only from available data. The system never fabricates prices, amenities, owners or links; missing values are shown as `null` or with explicit text.
 
-## Stack
-FastAPI · LangGraph · sentence-transformers · NumPy (file-based index) · Next.js 16
+## Product flow
 
-## Quick start
-```bash
-# Python 3.12
-uv venv .venv && uv pip install --python .venv/Scripts/python.exe --default-index https://pypi.org/simple \
-  fastapi uvicorn sentence-transformers langchain-huggingface langchain-openai langchain-ollama langgraph python-dotenv pyyaml requests pytest
-
-cp .env.example .env            # set LLM_API_KEY (Metis) for the chat tab
-
-python -c "from huggingface_hub import snapshot_download; snapshot_download('intfloat/multilingual-e5-base', local_dir='model/multilingual-e5-base')"
-python -m agent.job_search.jobvision_crawler -p 50 -o rfp/jobs     # collect ads (list API)
-python -m agent.job_search.enrich_jobs_cli                          # optional: descriptions
-python -m agent.job_search.build_job_index_cli                      # build the index
-
-# optional job groups (off by default; then set job_groups.enabled: true and restart the API)
-pip install ".[job-groups]" && docker compose --profile job-groups up -d qdrant
-python -m agent.job_search.build_job_groups_cli                      # dataset → KMeans job groups → Qdrant
-
-python -m uvicorn ui.src.api:app --port 8000                        # backend
-cd ui/web && npm install && npm run dev                             # UI → http://localhost:3000
+```mermaid
+flowchart LR
+  A[Describe the home] --> B[Search listings]
+  B --> C[Compare price and specs]
+  C --> D[Estimate loan and down payment]
+  D --> E[Due-diligence roadmap]
+  E --> F[Informed decision]
 ```
 
-## Docker
-Needs the embedding model in `./model/multilingual-e5-base`, a built index in `./data/index` (steps above)
-and `.env`. Both are mounted into the container, not baked into the image.
-```bash
-docker compose up -d --build     # images jobyab-api + jobyab-web; UI → http://localhost:3000, API → :8000
-docker compose logs -f api
-```
-Qdrant (`:6333`) caches every live-crawled ad with its embedding (`crawl_cache` in
-`configs/job_search.yaml`); on start the API reloads them, so crawled ads survive restarts
-without re-crawling or re-embedding. `/health` shows `crawl_cache.cached`.
-`./build.sh` builds and tags both images with the version from `pyproject.toml`.
+The UI is built with Next.js in RTL and includes light/dark mode, a Persian font, responsive design, built-in icons, loading and empty states, understandable errors and keyboard focus. The conversational chat keeps per-thread filters and uses the same deterministic search engine.
 
-## API
-| Endpoint | Purpose |
-|---|---|
-| `POST /jobs/search` | `{query, filters, top_k, sort: relevance\|newest, live}` → ranked ads + explanations |
-| `GET /jobs/filters` | filter values with counts |
-| `POST /jobs/groups` | optional: `{text, top_k}` → closest job groups (fit, matched/missing key skills); 503 while job groups are disabled |
-| `GET /jobs/groups/{id}` | optional: one job group's profile |
-| `POST /chat` | `{message, thread_id}` → grounded answer + source ads |
-| `GET /usage` | LLM tokens, latency (p50/p95), output tokens/s and per-route API timing since start |
-| `POST /usage/reset` | reset the usage counters |
+## Project layout
 
-## Tests
-```bash
-python -m pytest        # 98 tests, offline (fake embedder, in-memory Qdrant, no network)
+```text
+agent/
+  home_search/                 home domain: listings, crawler, loans, roadmap, assistant
+  graphs/                      chat graph and small nodes
+  agent_homes/prompts/         Khoneyab prompts
+  job_search/                  legacy JobVision API kept for compatibility
+  utilities/                   Persian text, embeddings and usage ledger
+ui/
+  src/api.py                   FastAPI and Pydantic contracts
+  web/                         Next.js page and UI components
+configs/                       YAML configuration without secrets
+Tests/home_search/             offline tests for the home domain
+Tests/job_search/              compatibility tests for the legacy module
+docs/home_demo.html            publishable static demo
 ```
 
-## Data & responsibility
-Ads come from public JobVision pages/APIs, collected at a low rate with an identifying User-Agent and
-only the fields needed for matching. Scraped data is not committed. API keys live only in `.env`.
-Job groups are built from the JobVision Jobposts Dataset (© JobVision, CC BY-NC 4.0, non-commercial use);
-the dataset is not committed, and its gender, age, military-service and disability columns are never read.
+Raw data, models, logs, secrets, caches, binaries and temporary files are not kept in Git. `data/` and `model/` are needed for local runs and are listed in `.gitignore`.
+
+## Quick local start
+
+Prerequisites: Python 3.12, Node.js 22 and Docker Desktop.
+
+```powershell
+cd E:\khoneyab
+Copy-Item .env.example .env
+# Put the real LLM key only in .env; .env is never committed.
+
+.venv\Scripts\python.exe -m pip install -e .
+
+# API
+.venv\Scripts\python.exe -m uvicorn ui.src.api:app --host 0.0.0.0 --port 8000
+
+# Web, in a second terminal
+cd ui\web
+npm ci
+npm run dev
+```
+
+The web app defaults to `http://localhost:3000` and the API to `http://localhost:8000`. If port 3000 is taken:
+
+```powershell
+$env:WEB_PORT="3001"
+docker compose up -d --build
+```
+
+## Full run with Docker
+
+Before running, copy `.env.example` to `.env` and set real environment values.
+
+```powershell
+docker compose config
+docker compose up -d --build
+docker compose ps
+```
+
+| Service | Address | Role |
+|---|---|---|
+| Web | `http://localhost:3000` | Next.js UI |
+| API | `http://localhost:8000` | FastAPI and OpenAPI |
+| PostgreSQL | `localhost:5432` | storage ready for state and future migrations |
+| Redis | `localhost:6379` | cache and rate limiting |
+| Qdrant | `http://localhost:6333/dashboard` | optional vector store |
+
+Compose defines a healthcheck for every service, and the API starts once PostgreSQL, Redis and Qdrant are healthy.
+
+```powershell
+docker compose exec redis redis-cli ping
+docker compose exec postgres pg_isready -U khoneyab -d khoneyab
+Invoke-RestMethod http://localhost:8000/health
+Invoke-WebRequest http://localhost:3000 -UseBasicParsing
+```
+
+In the MVP, listings are stored in `data/homes/*.jsonl` so the system runs without migrations. `DATABASE_URL` and `REDIS_URL` are ready in Compose, so distributed storage can be added later without changing the API contract.
+
+## API contract
+
+Interactive docs: `GET /docs` — raw schema: `GET /openapi.json`
+
+| Route | Main input | Output |
+|---|---|---|
+| `GET /homes/search` | `q`, `city`, price/area ranges, `rooms`, `sort`, `limit`, `offset` | results, total count, median price per m² and next page |
+| `GET /homes/options` | none | cities and listing count per city |
+| `POST /homes/chat` | `{message, thread_id?, filters?, top_k?}` | grounded answer, understood filters and source listings |
+| `GET /homes/loans` | `city`, `married` | loan catalog and reference terms |
+| `POST /homes/loans/plan` | price, down payment, income, household status and loans | installment, loan share, certificate cost, gap and warnings |
+| `GET /homes/roadmap` | none | inquiry steps and sources |
+| `GET /health` | none | service status and count of loaded data |
+
+HTTP policy:
+
+- Input models reject unknown fields with `422`.
+- Inverted price or area ranges return `422`.
+- A missing resource returns `404`; internal errors return `500`.
+- Stack traces and secrets are never exposed in public responses.
+- Every request gets an `X-Request-ID` header.
+- Chat routes are protected by an in-process rate limit; production needs a distributed gateway limit.
+
+Example:
+
+```powershell
+Invoke-RestMethod 'http://localhost:8000/homes/search?q=آپارتمان+دوخوابه&city=تهران&limit=12&sort=newest'
+```
+
+## Data and accuracy
+
+The crawler runs with an identifying user-agent, a limited rate and respects robots.txt. The output file is replaced atomically, personal contact details are not stored and missing data is never guessed. Loan terms are initial references and must be verified with the bank and notary office.
+
+To build sample local data:
+
+```powershell
+.venv\Scripts\python.exe -m agent.home_search.divar_crawler -c tehran -c karaj -p 3
+```
+
+For a resumable, target-driven crawl, the crawler saves output atomically after each page:
+
+```powershell
+.venv\Scripts\python.exe -m agent.home_search.divar_crawler `
+  --target 1000 `
+  -c tehran -c karaj -c mashhad -c isfahan `
+  --category apartment-sell --category house-villa-sell `
+  --max-pages-per-source 20 --delay 1.5
+```
+
+`--target` is the number of unique IDs; duplicate rows are dropped and an interrupted run can resume from the same JSONL file.
+
+## Prompt architecture and grounded answers
+
+Prompts live in `agent/agent_homes/prompts/` and are loaded with a shared loader and safe YAML. The pipeline has four stages:
+
+1. **Router** picks only `VectorStore` or `None` using a fixed schema.
+2. **Retriever** deterministically parses and ranks the Persian request and keeps `retrieval_note` separate from real Documents.
+3. **Quality gate**, when enabled, produces exactly one `isRelevant` per listing; a short or incomplete model answer never drops documents unintentionally.
+4. **Generator** sees only the numbered listing text, suggests at most three homes and uses «ذکر نشده» ("not mentioned") for missing data.
+
+Anti-fabrication rules, Persian answer style and legal limits are centralized in `context_rules.yaml`, so policy can change without touching graph logic.
+
+## Testing and quality checks
+
+```powershell
+.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m compileall -q agent ui
+
+cd ui\web
+npm ci
+npm run typecheck
+npm run build
+```
+
+Tests are offline and use fake HTTP, fake embeddings and in-memory Qdrant; they need no network or model downloads.
+
+## Release checklist
+
+1. Do not ship `.env`, `data/`, `model/` or `logs/`.
+2. Run `docker compose config` and the healthchecks.
+3. Keep `pytest`, typecheck and build green.
+4. Open `/health`, `/docs` and the web page in the target environment.
+5. Update loan terms and legal sources before real-world use.
+
+## Stopping and cleaning up locally
+
+```powershell
+docker compose down                 # stop services, keep volumes
+docker compose down -v              # remove local volumes; back up first
+```
+
+Keys stay only in `.env` and must never appear in a commit, issue or README.

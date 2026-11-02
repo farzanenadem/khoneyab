@@ -445,7 +445,13 @@ def create_qdrant_client(url: str = "", path: str = ""):
     from qdrant_client import QdrantClient
 
     if url:
-        return QdrantClient(url=url)
+        # The Compose server is pinned independently from the Python dependency.
+        # Keep startup quiet across compatible minor releases; API operations still
+        # fail fast in the caller when the server is unavailable.
+        try:
+            return QdrantClient(url=url, check_compatibility=False)
+        except TypeError:  # older qdrant-client releases
+            return QdrantClient(url=url)
     return QdrantClient(path=path) if path else QdrantClient(":memory:")
 
 
